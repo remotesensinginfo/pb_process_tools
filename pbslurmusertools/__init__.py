@@ -53,6 +53,11 @@ PB_SLURM_USER_TOOLS_SUPPORT_EMAIL = "rsgislib-support@googlegroups.com"
 
 log_default_level=logging.INFO
 
+# Get install prefix
+install_prefix = __file__[:__file__.find('lib')]
+
+log_config_path = os.path.join(install_prefix, "share","pbslurmusertools", "loggingconfig.json")
+
 log_config_value = os.getenv('PBSUT_LOG_CFG', None)
 if log_config_value:
     log_config_path = log_config_value
@@ -61,5 +66,5 @@ if os.path.exists(log_config_path):
         config = json.load(f)
     logging.config.dictConfig(config)
 else:
-    print('Warning: did not find the logging configuration file.')
+    print('Warning: did not find a logging configuration file.')
     logging.basicConfig(level=log_default_level)

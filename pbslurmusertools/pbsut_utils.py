@@ -3,7 +3,7 @@
 pb_slurm_user_tools - Setup/Update the system.
 """
 # This file is part of 'pb_slurm_user_tools'
-# A set of utilties for working with slurm.
+# A set of utilities for working with slurm.
 #
 # Copyright 2018 Pete Bunting
 #
@@ -20,7 +20,7 @@ pb_slurm_user_tools - Setup/Update the system.
 # limitations under the License.
 #
 #
-# Purpose:  Utilities used within the EODataDown System.
+# Purpose:  Utilities used within the PB Slurm User Tools System.
 #
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
@@ -30,10 +30,51 @@ pb_slurm_user_tools - Setup/Update the system.
 # History:
 # Version 1.0 - Created.
 
-
+import logging
 import gzip
 import json
 import datetime
+
+logger = logging.getLogger(__name__)
+
+
+class PBSUTTextFileUtils(object):
+
+    def readTextFile2List(self, file):
+        """
+        Read a text file into a list where each line
+        is an element in the list.
+        :param file:
+        :return:
+        """
+        out_list = []
+        try:
+            dataFile = open(file, 'r')
+            for line in dataFile:
+                line = line.strip()
+                if line != "":
+                    out_list.append(line)
+            dataFile.close()
+        except Exception as e:
+            raise e
+        return out_list
+
+    def writeList2File(self, data_list, out_file):
+        """
+        Write a list a text file, one line per item.
+        :param data_list:
+        :param out_file:
+        :return:
+        """
+        try:
+            f = open(out_file, 'w')
+            for item in data_list:
+                f.write(str(item) + '\n')
+            f.flush()
+            f.close()
+        except Exception as e:
+            raise e
+
 
 class PBSUTJSONParseHelper(object):
 
@@ -63,7 +104,6 @@ class PBSUTJSONParseHelper(object):
         with gzip.GzipFile(file_path, "w") as fout:  # 3. gzip
             fout.write(json_bytes)
 
-
     def doesPathExist(self, json_obj, tree_sequence):
         """
         A function which tests whether a path exists within JSON file.
@@ -73,15 +113,15 @@ class PBSUTJSONParseHelper(object):
         """
         curr_json_obj = json_obj
         steps_str = ""
-        pathExists = True
+        path_exists = True
         for tree_step in tree_sequence:
             steps_str = steps_str+":"+tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
-                pathExists = False
+                path_exists = False
                 break
-        return pathExists
+        return path_exists
 
     def getStrValue(self, json_obj, tree_sequence, valid_values=None):
         """
@@ -214,7 +254,6 @@ class PBSUTJSONParseHelper(object):
             else:
                 raise Exception("Could not find '{}'".format(steps_str))
 
-        out_value = 0.0
         if (type(curr_json_obj).__name__ == "int") or (type(curr_json_obj).__name__ == "float"):
             out_value = curr_json_obj
         elif type(curr_json_obj).__name__ == "str":

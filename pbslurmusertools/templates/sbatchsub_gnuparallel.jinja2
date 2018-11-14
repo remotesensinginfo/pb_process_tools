@@ -1,0 +1,15 @@
+#!/bin/bash --login
+
+#SBATCH --partition=compute
+#SBATCH --job-name={{ jobname }}
+#SBATCH --output={{ logfileout }}.%J
+#SBATCH --error={{ logfileerr }}.%J
+#SBATCH --time={{ time }}
+#SBATCH --ntasks={{ ncores }}
+#SBATCH --mem-per-cpu={{ mem_per_core_mb }}
+#SBATCH --ntasks-per-node={{ ncores_node }}
+
+{{ env_setup }}
+
+parallel -N 1 --delay .2 -j $SLURM_NTASKS < {{ cmds_file }}
+
