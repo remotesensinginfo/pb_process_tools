@@ -37,7 +37,7 @@ from distutils.core import setup
 import os
 
 setup(name='pb_slurm_user_tools',
-    version='0.0.1',
+    version='0.0.2',
     description='Tools for generating scripts for interacting with slurm',
     author='Pete Bunting',
     author_email='pfb@aber.ac.uk',

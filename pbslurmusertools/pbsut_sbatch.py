@@ -133,7 +133,7 @@ def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file
     output_file_base, output_file_ext = os.path.splitext(output_base_file)
 
     sbatch_cmds = []
-    i = 0
+    i = 1
     for input_file in input_file_lst:
         out_cmds_file = '{0}_{1}{2}'.format(out_cmds_file_base, i, out_cmds_file_ext)
         output_sbatch_file = '{0}_{1}{2}'.format(output_file_base, i, output_file_ext)
