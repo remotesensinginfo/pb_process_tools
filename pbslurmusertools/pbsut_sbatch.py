@@ -57,7 +57,7 @@ def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file):
     pbs_txt_utils.writeList2File(out_cmds_lst, out_cmds_file)
 
 
-def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file):
+def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file, custom_template):
     """
     A function which generates an sbatch submission script where a list of commands
     will be executed using GNU Parallel.
@@ -74,43 +74,29 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
 
     with open(config_file) as f:
         config_data = json.load(f)
-        jobname = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "jobname"])
-        logfileout = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "logfileout"])
-        logfileerr = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "logfileerr"])
-        time = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "time"])
-        ncores = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "ncores"])
-        mem_per_core_mb = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "mem_per_core_mb"])
-        ncores_node = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "ncores_node"])
-        env_setup = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "env_setup"])
-
-        if json_utils.doesPathExist(config_data, ["pbslurmusertools", "sbatch", "email_address"]):
+        vals_dict = json_utils.getValueDict(config_data, ["pbslurmusertools", "sbatch"])
+        if "email_address" in vals_dict:
             send_email = True
-            email_address = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "email_address"])
-            email_type = json_utils.getStrValue(config_data, ["pbslurmusertools", "sbatch", "email_type"],
-                                                ["ALL", "END"])
 
     create_srun_gnuparallel_cmds_file(input_file, out_cmds_file)
     # Read jinja2 template
-    template_loader = jinja2.PackageLoader('pbslurmusertools')
-    if send_email:
-        template_name = 'sbatchsub_gnuparallel_email.jinja2'
+
+    if custom_template is not None:
+        search_path, template_name = os.path.split(custom_template)
+        template_loader = jinja2.FileSystemLoader(searchpath=search_path)
     else:
-        template_name = 'sbatchsub_gnuparallel.jinja2'
+        template_loader = jinja2.PackageLoader('pbslurmusertools')
+        if send_email:
+            template_name = 'sbatchsub_gnuparallel_email.jinja2'
+        else:
+            template_name = 'sbatchsub_gnuparallel.jinja2'
 
     template_env = jinja2.Environment(loader=template_loader)
     template = template_env.get_template(template_name)
 
-    if send_email:
-        output_text = template.render(jobname=jobname, logfileout=logfileout,
-                                      logfileerr=logfileerr, time=time, ncores=ncores,
-                                      mem_per_core_mb=mem_per_core_mb, ncores_node=ncores_node,
-                                      env_setup=env_setup, email_address=email_address,
-                                      email_type=email_type, cmds_file=out_cmds_file)
-    else:
-        output_text = template.render(jobname=jobname, logfileout=logfileout,
-                                      logfileerr=logfileerr, time=time, ncores=ncores,
-                                      mem_per_core_mb=mem_per_core_mb, ncores_node=ncores_node,
-                                      env_setup=env_setup, cmds_file=out_cmds_file)
+    vals_dict['cmds_file'] = input_file
+
+    output_text = template.render(vals_dict)
 
     with open(output_sbatch_file, 'w') as out_file:
         out_file.write(output_text + '\n')
@@ -118,7 +104,7 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
         out_file.close()
 
 
-def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file, output_base_file):
+def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file, output_base_file, custom_template):
     """
     A function which iterates through a list of files creating output files to
     be executed using sbatch.
@@ -137,7 +123,7 @@ def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file
     for input_file in input_file_lst:
         out_cmds_file = '{0}_{1}{2}'.format(out_cmds_file_base, i, out_cmds_file_ext)
         output_sbatch_file = '{0}_{1}{2}'.format(output_file_base, i, output_file_ext)
-        get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file)
+        get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file, custom_template)
         sbatch_cmds.append('sbatch {}'.format(output_sbatch_file))
         i = i + 1
 

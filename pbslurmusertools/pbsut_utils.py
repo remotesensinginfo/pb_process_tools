@@ -123,6 +123,29 @@ class PBSUTJSONParseHelper(object):
                 break
         return path_exists
 
+
+    def getValueDict(self, json_obj, tree_sequence):
+        """
+
+        :param json_obj:
+        :param tree_sequence:
+        :return:
+        """
+        curr_json_obj = json_obj
+        steps_str = ""
+        for tree_step in tree_sequence:
+            steps_str = steps_str + ":" + tree_step
+            if tree_step in curr_json_obj:
+                curr_json_obj = curr_json_obj[tree_step]
+            else:
+                raise Exception("Could not find '{}'".format(steps_str))
+
+        out_dict = dict()
+        for name in curr_json_obj:
+            out_dict[name] = curr_json_obj[name]
+
+        return out_dict
+
     def getStrValue(self, json_obj, tree_sequence, valid_values=None):
         """
         A function which retrieves a single string value from a JSON structure.

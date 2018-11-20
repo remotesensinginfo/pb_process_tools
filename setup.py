@@ -37,11 +37,11 @@ from distutils.core import setup
 import os
 
 setup(name='pb_slurm_user_tools',
-    version='0.0.2',
+    version='0.0.3',
     description='Tools for generating scripts for interacting with slurm',
     author='Pete Bunting',
     author_email='pfb@aber.ac.uk',
-    scripts=['bin/genslurmsub.py'],
+    scripts=['bin/genslurmsub.py', 'bin/splitcmdslist.py'],
     include_package_data=True,
     packages=['pbslurmusertools'],
     package_dir={'pbslurmusertools': 'pbslurmusertools'},
