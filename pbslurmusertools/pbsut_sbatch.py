@@ -94,7 +94,7 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
     template_env = jinja2.Environment(loader=template_loader)
     template = template_env.get_template(template_name)
 
-    vals_dict['cmds_file'] = input_file
+    vals_dict['cmds_file'] = out_cmds_file
 
     output_text = template.render(vals_dict)
 
