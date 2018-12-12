@@ -41,6 +41,50 @@ import pbslurmusertools.pbsut_utils
 logger = logging.getLogger(__name__)
 
 
+def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template):
+    """
+    A function which generates an sbatch submission script where a list of commands
+    will be executed using GNU Parallel.
+
+    :param config_file:
+    :param input_file:
+    :param out_cmds_file:
+    :param output_sbatch_file:
+    :return:
+    """
+    # Parse JSON config file.
+    send_email = False
+    json_utils = pbslurmusertools.pbsut_utils.PBSUTJSONParseHelper()
+
+    with open(config_file) as f:
+        config_data = json.load(f)
+        vals_dict = json_utils.getValueDict(config_data, ["pbslurmusertools", "sbatch"])
+        if "email_address" in vals_dict:
+            send_email = True
+
+    # Read jinja2 template
+    if custom_template is not None:
+        search_path, template_name = os.path.split(custom_template)
+        template_loader = jinja2.FileSystemLoader(searchpath=search_path)
+    else:
+        template_loader = jinja2.PackageLoader('pbslurmusertools')
+        if send_email:
+            template_name = 'sbatchsub_basic_email.jinja2'
+        else:
+            template_name = 'sbatchsub_basic.jinja2'
+
+    template_env = jinja2.Environment(loader=template_loader)
+    template = template_env.get_template(template_name)
+
+    vals_dict['cmd'] = out_cmd
+
+    output_text = template.render(vals_dict)
+
+    with open(output_sbatch_file, 'w') as out_file:
+        out_file.write(output_text + '\n')
+        out_file.flush()
+        out_file.close()
+
 def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file):
     """
 

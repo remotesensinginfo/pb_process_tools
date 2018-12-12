@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-pb_slurm_user_tools - Create slurm submission script(s).
+pb_slurm_user_tools - Create slurm submission script for a single command.
 """
 # This file is part of 'pb_slurm_user_tools'
 # A set of utilities for working with slurm.
@@ -23,7 +23,7 @@ pb_slurm_user_tools - Create slurm submission script(s).
 #
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
-# Date: 12/11/2018
+# Date: 12/12/2018
 # Version: 1.0
 #
 # History:
@@ -32,30 +32,17 @@ pb_slurm_user_tools - Create slurm submission script(s).
 import argparse
 import logging
 
-import pbslurmusertools.pbsut_utils
 import pbslurmusertools.pbsut_sbatch
 
-logger = logging.getLogger('genslurmsub.py')
+logger = logging.getLogger('subcmdslurm.py')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", type=str, required=True, help="Path to the JSON config file.")
-    parser.add_argument("-i", "--input", type=str, required=True, help="Specify an input file.")
-    parser.add_argument("-f", "--cmdsfile", type=str, required=True, help="Specify an output file with srun "
-                                                                          "commands to be run.")
+    parser.add_argument("--cmd", type=str, required=True, help="Specify an input file.")
     parser.add_argument("-o", "--output", type=str, required=True, help="Specify an output file.")
     parser.add_argument("-t", "--template", type=str, help="Optionally provide a custom template file.")
-    parser.add_argument("--multi", action='store_true', default=False,
-                        help="""Specify that multiple input files are being provided as a file list (i.e., 
-                                the input file is a file which lists the input files.""")
 
     args = parser.parse_args()
 
-    if args.multi:
-        pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
-        in_file_lst = pbs_txt_utils.readTextFile2List(args.input)
-        pbslurmusertools.pbsut_sbatch.get_gnuparallel_multi_sbatch(args.config, in_file_lst, args.cmdsfile,
-                                                                   args.output, args.template)
-    else:
-        pbslurmusertools.pbsut_sbatch.get_gnuparallel_single_sbatch(args.config, args.input, args.cmdsfile,
-                                                                    args.output, args.template)
+    pbslurmusertools.pbsut_sbatch.get_single_sbatch(args.config, args.cmd, args.output, args.template)
