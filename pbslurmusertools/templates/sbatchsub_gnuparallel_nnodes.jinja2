@@ -7,8 +7,7 @@
 #SBATCH --time={{ time }}
 #SBATCH --ntasks={{ ncores }}
 #SBATCH --mem-per-cpu={{ mem_per_core_mb }}
-#SBATCH --mail-type={{ email_type }}
-#SBATCH --mail-user={{ email_address }}
+#SBATCH --ntasks-per-node={{ ncores_node }}
 
 {{ env_setup }}
 

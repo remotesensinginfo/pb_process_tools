@@ -54,6 +54,7 @@ def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template)
     """
     # Parse JSON config file.
     send_email = False
+    specify_cores_per_node = False
     json_utils = pbslurmusertools.pbsut_utils.PBSUTJSONParseHelper()
 
     with open(config_file) as f:
@@ -61,6 +62,8 @@ def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template)
         vals_dict = json_utils.getValueDict(config_data, ["pbslurmusertools", "sbatch"])
         if "email_address" in vals_dict:
             send_email = True
+        if "ncores_node" in vals_dict:
+            specify_cores_per_node = True
 
     # Read jinja2 template
     if custom_template is not None:
@@ -68,8 +71,12 @@ def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template)
         template_loader = jinja2.FileSystemLoader(searchpath=search_path)
     else:
         template_loader = jinja2.PackageLoader('pbslurmusertools')
-        if send_email:
+        if send_email and specify_cores_per_node:
+            template_name = 'sbatchsub_basic_nnodes_email.jinja2'
+        elif send_email:
             template_name = 'sbatchsub_basic_email.jinja2'
+        elif specify_cores_per_node:
+            template_name = 'sbatchsub_basic_nnodes.jinja2'
         else:
             template_name = 'sbatchsub_basic.jinja2'
 
@@ -114,6 +121,7 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
     """
     # Parse JSON config file.
     send_email = False
+    specify_cores_per_node = False
     json_utils = pbslurmusertools.pbsut_utils.PBSUTJSONParseHelper()
 
     with open(config_file) as f:
@@ -121,6 +129,8 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
         vals_dict = json_utils.getValueDict(config_data, ["pbslurmusertools", "sbatch"])
         if "email_address" in vals_dict:
             send_email = True
+        if "ncores_node" in vals_dict:
+            specify_cores_per_node = True
 
     create_srun_gnuparallel_cmds_file(input_file, out_cmds_file)
     # Read jinja2 template
@@ -130,8 +140,12 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
         template_loader = jinja2.FileSystemLoader(searchpath=search_path)
     else:
         template_loader = jinja2.PackageLoader('pbslurmusertools')
-        if send_email:
+        if send_email and specify_cores_per_node:
+            template_name = 'sbatchsub_gnuparallel_nnodes_email.jinja2'
+        elif send_email:
             template_name = 'sbatchsub_gnuparallel_email.jinja2'
+        elif specify_cores_per_node:
+            template_name = 'sbatchsub_gnuparallel_nnodes.jinja2'
         else:
             template_name = 'sbatchsub_gnuparallel.jinja2'
 
