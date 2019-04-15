@@ -92,23 +92,28 @@ def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template)
         out_file.flush()
         out_file.close()
 
-def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file):
+def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file, prepend_cmd):
     """
 
     :param input_file:
     :param out_cmds_file:
+    :param prepend_cmd:
     :return:
     """
     pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
     in_cmds_lst = pbs_txt_utils.readTextFile2List(input_file)
     out_cmds_lst = []
     for cmd in in_cmds_lst:
-        out_cmd = "srun -n1 -N1 --exclusive {}".format(cmd)
+        if prepend_cmd is not None:
+            out_cmd = "srun -n1 -N1 {0} {1}".format(prepend_cmd, cmd)
+        else:
+            out_cmd = "srun -n1 -N1 {0}".format(cmd)
         out_cmds_lst.append(out_cmd)
     pbs_txt_utils.writeList2File(out_cmds_lst, out_cmds_file)
 
 
-def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file, custom_template):
+def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file,
+                                  custom_template, prepend_cmd):
     """
     A function which generates an sbatch submission script where a list of commands
     will be executed using GNU Parallel.
@@ -117,6 +122,7 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
     :param input_file:
     :param out_cmds_file:
     :param output_sbatch_file:
+    :param prepend_cmd:
     :return:
     """
     # Parse JSON config file.
@@ -132,9 +138,9 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
         if "ncores_node" in vals_dict:
             specify_cores_per_node = True
 
-    create_srun_gnuparallel_cmds_file(input_file, out_cmds_file)
-    # Read jinja2 template
+    create_srun_gnuparallel_cmds_file(input_file, out_cmds_file, prepend_cmd)
 
+    # Read jinja2 template
     if custom_template is not None:
         search_path, template_name = os.path.split(custom_template)
         template_loader = jinja2.FileSystemLoader(searchpath=search_path)
@@ -162,7 +168,8 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
         out_file.close()
 
 
-def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file, output_base_file, custom_template):
+def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file, output_base_file,
+                                 custom_template, prepend_cmd):
     """
     A function which iterates through a list of files creating output files to
     be executed using sbatch.
@@ -171,6 +178,7 @@ def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file
     :param input_file_lst:
     :param out_cmds_base_file:
     :param output_base_file:
+    :param prepend_cmd:
     :return:
     """
     out_cmds_file_base, out_cmds_file_ext = os.path.splitext(out_cmds_base_file)
@@ -181,7 +189,8 @@ def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file
     for input_file in input_file_lst:
         out_cmds_file = '{0}_{1}{2}'.format(out_cmds_file_base, i, out_cmds_file_ext)
         output_sbatch_file = '{0}_{1}{2}'.format(output_file_base, i, output_file_ext)
-        get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file, custom_template)
+        get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file,
+                                      custom_template, prepend_cmd)
         sbatch_cmds.append('sbatch {}'.format(output_sbatch_file))
         i = i + 1
 

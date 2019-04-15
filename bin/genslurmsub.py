@@ -45,6 +45,8 @@ if __name__ == "__main__":
                                                                           "commands to be run.")
     parser.add_argument("-o", "--output", type=str, required=True, help="Specify an output file.")
     parser.add_argument("-t", "--template", type=str, help="Optionally provide a custom template file.")
+    parser.add_argument("-p", "--precmd", type=str, help="Optionally provide custom command (e.g., singularity) to be "
+                                                         "prepended to all the commands.")
     parser.add_argument("--multi", action='store_true', default=False,
                         help="""Specify that multiple input files are being provided as a file list (i.e., 
                                 the input file is a file which lists the input files.""")
@@ -55,7 +57,7 @@ if __name__ == "__main__":
         pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
         in_file_lst = pbs_txt_utils.readTextFile2List(args.input)
         pbslurmusertools.pbsut_sbatch.get_gnuparallel_multi_sbatch(args.config, in_file_lst, args.cmdsfile,
-                                                                   args.output, args.template)
+                                                                   args.output, args.template, args.precmd)
     else:
         pbslurmusertools.pbsut_sbatch.get_gnuparallel_single_sbatch(args.config, args.input, args.cmdsfile,
-                                                                    args.output, args.template)
+                                                                    args.output, args.template, args.precmd)
