@@ -90,6 +90,8 @@ if __name__ == "__main__":
                                                                         "as the base name for the output files.")
     parser.add_argument("-s", "--split", type=int, default=0, help="The number of commands per output file.")
     parser.add_argument("-f", "--nfiles", type=int, default=0, help="The number of output files to generate.")
+    parser.add_argument("-p", "--precmd", type=str, help="Optionally provide custom command (e.g., singularity) to be "
+                                                         "prepended to all the commands.")
 
     args = parser.parse_args()
 
@@ -101,6 +103,13 @@ if __name__ == "__main__":
 
     pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
     cmds_lst = pbs_txt_utils.readTextFile2List(args.input)
+
+    if args.precmd is not None:
+        tmp_cmds_lst = list()
+        for cmd in cmds_lst:
+            n_cmd = '{0} {1}'.format(args.precmd, cmd)
+            tmp_cmds_lst.append(n_cmd)
+        cmds_lst = tmp_cmds_lst
 
     if args.split > 0:
         splitByNumCommands(cmds_lst, args.split, args.output)
