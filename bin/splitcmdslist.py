@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-pb_slurm_user_tools - Setup/Update the system.
+pb_process_tools - Setup/Update the system.
 """
-# This file is part of 'pb_slurm_user_tools'
-# A set of utilities for working with slurm.
+# This file is part of 'pb_process_tools'
+# A set of utilities for batch processing data.
 #
 # Copyright 2018 Pete Bunting
 #
@@ -35,7 +35,7 @@ import logging
 import math
 import os.path
 
-import pbslurmusertools.pbsut_utils
+import pbprocesstools.pbpt_utils
 
 logger = logging.getLogger('splitcmdslist.py')
 
@@ -47,7 +47,7 @@ def splitByNumCommands(cmds_lst, n_out_cmds, outputfile):
     :param outputfile:
     :return:
     """
-    pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
+    pbpt_txt_utils = pbprocesstools.pbpt_utils.PBPTTextFileUtils()
     n_cmds = len(cmds_lst)
     n_out_files = math.floor(n_cmds / n_out_cmds)
     n_remain = n_cmds - (n_out_files * n_out_cmds)
@@ -61,7 +61,7 @@ def splitByNumCommands(cmds_lst, n_out_cmds, outputfile):
         u_bound = (i + 1) * n_out_cmds
         outfile_name = '{0}_{1}{2}'.format(outfile_base, outfile_id, outfile_ext)
         logger.info('Creating file: {}.'.format(outfile_name))
-        pbs_txt_utils.writeList2File(cmds_lst[l_bound:u_bound], outfile_name)
+        pbpt_txt_utils.writeList2File(cmds_lst[l_bound:u_bound], outfile_name)
         out_file_lst.append(outfile_name)
         outfile_id = outfile_id + 1
 
@@ -71,11 +71,11 @@ def splitByNumCommands(cmds_lst, n_out_cmds, outputfile):
         u_bound = n_cmds
         outfile_name = '{0}_{1}{2}'.format(outfile_base, outfile_id, outfile_ext)
         logger.info('Creating file: {}.'.format(outfile_name))
-        pbs_txt_utils.writeList2File(cmds_lst[l_bound:u_bound], outfile_name)
+        pbpt_txt_utils.writeList2File(cmds_lst[l_bound:u_bound], outfile_name)
         out_file_lst.append(outfile_name)
 
     out_filelist_name = '{0}_filelst{2}'.format(outfile_base, outfile_id, outfile_ext)
-    pbs_txt_utils.writeList2File(out_file_lst, out_filelist_name)
+    pbpt_txt_utils.writeList2File(out_file_lst, out_filelist_name)
 
 def splitIntoNFiles(cmds_lst, n_out_files, outputfile):
     n_cmds = len(cmds_lst)
@@ -101,8 +101,8 @@ if __name__ == "__main__":
         raise Exception("You have specified both --split and --files just specify one "
                         "(i.e., with a value greater than zero).")
 
-    pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
-    cmds_lst = pbs_txt_utils.readTextFile2List(args.input)
+    pbpt_txt_utils = pbprocesstools.pbpt_utils.PBPTTextFileUtils()
+    cmds_lst = pbpt_txt_utils.readTextFile2List(args.input)
 
     if args.precmd is not None:
         tmp_cmds_lst = list()

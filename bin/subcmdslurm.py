@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-pb_slurm_user_tools - Create slurm submission script for a single command.
+pb_process_tools - Create slurm submission script for a single command.
 """
-# This file is part of 'pb_slurm_user_tools'
-# A set of utilities for working with slurm.
+# This file is part of 'pb_process_tools'
+# A set of utilities for batch processing data.
 #
 # Copyright 2018 Pete Bunting
 #
@@ -32,7 +32,7 @@ pb_slurm_user_tools - Create slurm submission script for a single command.
 import argparse
 import logging
 
-import pbslurmusertools.pbsut_sbatch
+import pbprocesstools.pbpt_sbatch
 
 logger = logging.getLogger('subcmdslurm.py')
 
@@ -45,4 +45,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    pbslurmusertools.pbsut_sbatch.get_single_sbatch(args.config, args.cmd, args.output, args.template)
+    pbprocesstools.pbpt_sbatch.get_single_sbatch(args.config, args.cmd, args.output, args.template)

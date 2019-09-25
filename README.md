@@ -1,13 +1,13 @@
-# PB Slurm User Tools
+# PB Process Tools
 
-Tools for generating slurm job submission scripts. These are a set of scripts I have put together to streamline my workflows.
+Tools for batch processing large datasets, including generating slurm job submission scripts. These are a set of scripts I have put together to streamline my workflows.
 
 ## Example Configuration files
 
 Basic options which must be provided. 
 ```json
 {
-    "pbslurmusertools":
+    "pbprocesstools":
     {
         "sbatch":
         {
@@ -27,7 +27,7 @@ Basic options which must be provided.
 If you wish for the system to send you an emails about the job then you can add the following options, note email type can be either ALL or END.
 ```json
 {
-    "pbslurmusertools":
+    "pbprocesstools":
     {
         "sbatch":
         {

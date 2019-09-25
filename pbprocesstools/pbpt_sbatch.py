@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-pb_slurm_user_tools - Setup/Update the system.
+pb_process_tools - Setup/Update the system.
 """
-# This file is part of 'pb_slurm_user_tools'
-# A set of utilities for working with slurm.
+# This file is part of 'pb_process_tools'
+# A set of utilities for batch processing data.
 #
 # Copyright 2018 Pete Bunting
 #
@@ -36,7 +36,7 @@ import os
 import os.path
 import jinja2
 
-import pbslurmusertools.pbsut_utils
+import pbprocesstools.pbpt_utils
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +55,11 @@ def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template)
     # Parse JSON config file.
     send_email = False
     specify_cores_per_node = False
-    json_utils = pbslurmusertools.pbsut_utils.PBSUTJSONParseHelper()
+    json_utils = pbprocesstools.pbpt_utils.PBPTJSONParseHelper()
 
     with open(config_file) as f:
         config_data = json.load(f)
-        vals_dict = json_utils.getValueDict(config_data, ["pbslurmusertools", "sbatch"])
+        vals_dict = json_utils.getValueDict(config_data, ["pbprocesstools", "sbatch"])
         if "email_address" in vals_dict:
             send_email = True
         if "ncores_node" in vals_dict:
@@ -70,7 +70,7 @@ def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template)
         search_path, template_name = os.path.split(custom_template)
         template_loader = jinja2.FileSystemLoader(searchpath=search_path)
     else:
-        template_loader = jinja2.PackageLoader('pbslurmusertools')
+        template_loader = jinja2.PackageLoader('pbprocesstools')
         if send_email and specify_cores_per_node:
             template_name = 'sbatchsub_basic_nnodes_email.jinja2'
         elif send_email:
@@ -100,8 +100,8 @@ def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file, prepend_cmd):
     :param prepend_cmd:
     :return:
     """
-    pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
-    in_cmds_lst = pbs_txt_utils.readTextFile2List(input_file)
+    pbpt_txt_utils = pbprocesstools.pbpt_utils.PBPTTextFileUtils()
+    in_cmds_lst = pbpt_txt_utils.readTextFile2List(input_file)
     out_cmds_lst = []
     for cmd in in_cmds_lst:
         if prepend_cmd is not None:
@@ -109,7 +109,7 @@ def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file, prepend_cmd):
         else:
             out_cmd = "srun -n1 -N1 {0}".format(cmd)
         out_cmds_lst.append(out_cmd)
-    pbs_txt_utils.writeList2File(out_cmds_lst, out_cmds_file)
+    pbpt_txt_utils.writeList2File(out_cmds_lst, out_cmds_file)
 
 
 def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file,
@@ -128,11 +128,11 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
     # Parse JSON config file.
     send_email = False
     specify_cores_per_node = False
-    json_utils = pbslurmusertools.pbsut_utils.PBSUTJSONParseHelper()
+    json_utils = pbprocesstools.pbpt_utils.PBPTJSONParseHelper()
 
     with open(config_file) as f:
         config_data = json.load(f)
-        vals_dict = json_utils.getValueDict(config_data, ["pbslurmusertools", "sbatch"])
+        vals_dict = json_utils.getValueDict(config_data, ["pbprocesstools", "sbatch"])
         if "email_address" in vals_dict:
             send_email = True
         if "ncores_node" in vals_dict:
@@ -145,7 +145,7 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
         search_path, template_name = os.path.split(custom_template)
         template_loader = jinja2.FileSystemLoader(searchpath=search_path)
     else:
-        template_loader = jinja2.PackageLoader('pbslurmusertools')
+        template_loader = jinja2.PackageLoader('pbprocesstools')
         if send_email and specify_cores_per_node:
             template_name = 'sbatchsub_gnuparallel_nnodes_email.jinja2'
         elif send_email:
@@ -195,5 +195,5 @@ def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file
         i = i + 1
 
     output_sbatch_file = '{0}_{1}{2}'.format(output_file_base, 'runall', output_file_ext)
-    pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
-    pbs_txt_utils.writeList2File(sbatch_cmds, output_sbatch_file)
+    pbpt_txt_utils = pbprocesstools.pbpt_utils.PBPTTextFileUtils()
+    pbpt_txt_utils.writeList2File(sbatch_cmds, output_sbatch_file)

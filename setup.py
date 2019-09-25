@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 """
-Setup script for pb_slurm_user_tools. Use like this for Unix:
+Setup script for pb_process_tools. Use like this for Unix:
 
 $ python setup.py install
 
 """
-# This file is part of 'pb_slurm_user_tools'
-# A set of utilities for working with slurm.
+# This file is part of 'pb_process_tools'
+# A set of utilities for batch processing data.
 #
 # Copyright 2018 Pete Bunting
 #
@@ -36,21 +36,21 @@ $ python setup.py install
 from distutils.core import setup
 import os
 
-setup(name='pb_slurm_user_tools',
+setup(name='pb_process_tools',
     version='0.0.9',
-    description='Tools for generating scripts for interacting with slurm',
+    description='Tools for batch processing data, including with HPC with slurm.',
     author='Pete Bunting',
     author_email='pfb@aber.ac.uk',
-    scripts=['bin/genslurmsub.py', 'bin/subcmdslurm.py', 'bin/splitcmdslist.py'],
+    scripts=['bin/genslurmsub.py', 'bin/subcmdslurm.py', 'bin/splitcmdslist.py', 'bin/prefixcmdslst.py'],
     include_package_data=True,
-    packages=['pbslurmusertools'],
-    package_dir={'pbslurmusertools': 'pbslurmusertools'},
-    package_data={'pbslurmusertools': ['templates/*.jinja2']},
-    data_files=[(os.path.join('share','pbslurmusertools'),
+    packages=['pbprocesstools'],
+    package_dir={'pbprocesstools': 'pbprocesstools'},
+    package_data={'pbprocesstools': ['templates/*.jinja2']},
+    data_files=[(os.path.join('share','pbprocesstools'),
                 [os.path.join('share','loggingconfig.json')])],
     license='LICENSE.txt',
     install_requires=['jinja2'],
-    url='https://bitbucket.org/petebunting/pb_slurm_user_tools',
+    url='https://bitbucket.org/petebunting/pb_process_tools',
     classifiers=['Intended Audience :: Developers',
     	  'Intended Audience :: HPC Users',
           'Operating System :: OS Independent',

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-pb_slurm_user_tools - Create slurm submission script(s).
+pb_process_tools - Create slurm submission script(s).
 """
-# This file is part of 'pb_slurm_user_tools'
-# A set of utilities for working with slurm.
+# This file is part of 'pb_process_tools'
+# A set of utilities for batch processing data.
 #
 # Copyright 2018 Pete Bunting
 #
@@ -32,8 +32,8 @@ pb_slurm_user_tools - Create slurm submission script(s).
 import argparse
 import logging
 
-import pbslurmusertools.pbsut_utils
-import pbslurmusertools.pbsut_sbatch
+import pbprocesstools.pbpt_utils
+import pbprocesstools.pbpt_sbatch
 
 logger = logging.getLogger('genslurmsub.py')
 
@@ -54,10 +54,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.multi:
-        pbs_txt_utils = pbslurmusertools.pbsut_utils.PBSUTTextFileUtils()
-        in_file_lst = pbs_txt_utils.readTextFile2List(args.input)
-        pbslurmusertools.pbsut_sbatch.get_gnuparallel_multi_sbatch(args.config, in_file_lst, args.cmdsfile,
-                                                                   args.output, args.template, args.precmd)
+        pbpt_txt_utils = pbprocesstools.pbpt_utils.PBPTTextFileUtils()
+        in_file_lst = pbpt_txt_utils.readTextFile2List(args.input)
+        pbprocesstools.pbpt_sbatch.get_gnuparallel_multi_sbatch(args.config, in_file_lst, args.cmdsfile,
+                                                                args.output, args.template, args.precmd)
     else:
-        pbslurmusertools.pbsut_sbatch.get_gnuparallel_single_sbatch(args.config, args.input, args.cmdsfile,
-                                                                    args.output, args.template, args.precmd)
+        pbprocesstools.pbpt_sbatch.get_gnuparallel_single_sbatch(args.config, args.input, args.cmdsfile,
+                                                                 args.output, args.template, args.precmd)

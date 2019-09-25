@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """
-pb_slurm_user_tools - this file is needed to ensure it can be imported
+pb_process_tools - this file is needed to ensure it can be imported
 
 See other source files for details
 """
-# This file is part of 'pb_slurm_user_tools'
+# This file is part of 'pb_process_tools'
 # A set of utilties for working with slurm.
 #
 # Copyright 2018 Pete Bunting
@@ -38,17 +38,17 @@ import logging
 import logging.config
 import json
 
-PB_SLURM_USER_TOOLS_VERSION_MAJOR = 0
-PB_SLURM_USER_TOOLS_VERSION_MINOR = 0
-PB_SLURM_USER_TOOLS_VERSION_PATCH = 9
+PB_PROCESS_TOOLS_VERSION_MAJOR = 0
+PB_PROCESS_TOOLS_VERSION_MINOR = 0
+PB_PROCESS_TOOLS_VERSION_PATCH = 9
 
-PB_SLURM_USER_TOOLS_VERSION = str(PB_SLURM_USER_TOOLS_VERSION_MAJOR) + "."  + str(PB_SLURM_USER_TOOLS_VERSION_MINOR) + "." + str(PB_SLURM_USER_TOOLS_VERSION_PATCH)
-PB_SLURM_USER_TOOLS_VERSION_OBJ = LooseVersion(PB_SLURM_USER_TOOLS_VERSION)
+PB_PROCESS_TOOLS_VERSION = str(PB_PROCESS_TOOLS_VERSION_MAJOR) + "."  + str(PB_PROCESS_TOOLS_VERSION_MINOR) + "." + str(PB_PROCESS_TOOLS_VERSION_PATCH)
+PB_PROCESS_TOOLS_VERSION_OBJ = LooseVersion(PB_PROCESS_TOOLS_VERSION)
 
-PB_SLURM_USER_TOOLS_COPYRIGHT_YEAR = "2018"
-PB_SLURM_USER_TOOLS_COPYRIGHT_NAMES = "Pete Bunting"
+PB_PROCESS_TOOLS_COPYRIGHT_YEAR = "2018"
+PB_PROCESS_TOOLS_COPYRIGHT_NAMES = "Pete Bunting"
 
-PB_SLURM_USER_TOOLS_SUPPORT_EMAIL = "rsgislib-support@googlegroups.com"
+PB_PROCESS_TOOLS_SUPPORT_EMAIL = "rsgislib-support@googlegroups.com"
 
 
 log_default_level=logging.INFO
@@ -56,9 +56,9 @@ log_default_level=logging.INFO
 # Get install prefix
 install_prefix = __file__[:__file__.find('lib')]
 
-log_config_path = os.path.join(install_prefix, "share","pbslurmusertools", "loggingconfig.json")
+log_config_path = os.path.join(install_prefix, "share","pbprocesstools", "loggingconfig.json")
 
-log_config_value = os.getenv('PBSUT_LOG_CFG', None)
+log_config_value = os.getenv('PBPT_LOG_CFG', None)
 if log_config_value:
     log_config_path = log_config_value
 if os.path.exists(log_config_path):

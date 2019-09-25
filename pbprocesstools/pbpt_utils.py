@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-pb_slurm_user_tools - Setup/Update the system.
+pb_process_tools - Setup/Update the system.
 """
-# This file is part of 'pb_slurm_user_tools'
-# A set of utilities for working with slurm.
+# This file is part of 'pb_process_tools'
+# A set of utilities for batch processing data.
 #
 # Copyright 2018 Pete Bunting
 #
@@ -20,7 +20,7 @@ pb_slurm_user_tools - Setup/Update the system.
 # limitations under the License.
 #
 #
-# Purpose:  Utilities used within the PB Slurm User Tools System.
+# Purpose:  Utilities used within the PB Process Tools System.
 #
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
@@ -38,7 +38,7 @@ import datetime
 logger = logging.getLogger(__name__)
 
 
-class PBSUTTextFileUtils(object):
+class PBPTTextFileUtils(object):
 
     def readTextFile2List(self, file):
         """
@@ -76,7 +76,7 @@ class PBSUTTextFileUtils(object):
             raise e
 
 
-class PBSUTJSONParseHelper(object):
+class PBPTJSONParseHelper(object):
 
     def readGZIPJSON(self, file_path):
         """
