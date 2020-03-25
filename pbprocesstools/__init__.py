@@ -5,7 +5,7 @@ pb_process_tools - this file is needed to ensure it can be imported
 See other source files for details
 """
 # This file is part of 'pb_process_tools'
-# A set of utilties for working with slurm.
+# A set of utilities for batch processing data.
 #
 # Copyright 2018 Pete Bunting
 #
