@@ -53,8 +53,9 @@ if __name__ == "__main__":
 
     out_cmds_lst = list()
     for cmd in cmds_lst:
-        n_cmd = '{0} {1}'.format(args.prefix, cmd)
-        out_cmds_lst.append(n_cmd)
+        if (cmd != "") and ('#' not in cmd):
+            n_cmd = '{0} {1}'.format(args.prefix, cmd)
+            out_cmds_lst.append(n_cmd)
 
     pbpt_txt_utils.writeList2File(out_cmds_lst, args.output)
 

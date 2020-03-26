@@ -415,7 +415,7 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
 
         # Create the sbatch template
         with open(sbatch_template, 'w') as sbatch_template_file:
-            sbatch_template_file.write("# !/bin/bash --login\n")
+            sbatch_template_file.write("#!/bin/bash --login\n")
             sbatch_template_file.write("\n")
             if account_name is not None:
                 sbatch_template_file.write("# SBATCH --account={{ account }}\n")
@@ -434,11 +434,14 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
 
         # Create the shell script which runs the whole processing chain.
         with open(run_script, 'w') as run_script_file:
+            run_script_file.write("#!/bin/bash\n")
             run_script_file.write("# Check the scripts directory exists, if not then create\n")
             run_script_file.write("if [ ! -d \"{}\" ]; then\n".format(sub_scripts_dir))
             run_script_file.write("  mkdir {}\n".format(sub_scripts_dir))
             run_script_file.write("fi\n")
             run_script_file.write("\n")
+
+            run_script_file.write("# Split the input commands into a file for each job.\n")
             sub_cmds_sh_file = os.path.join(sub_scripts_dir, "cmds_sh_file.sh")
             if prepend is None:
                 run_script_file.write("splitcmdslist.py -i {} -o {} -f {}\n".format(cmds_sh_file,
@@ -451,6 +454,7 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
                                                                                        n_jobs))
             run_script_file.write("\n")
 
+            run_script_file.write("# Create the SLURM job submission scripts.\n")
             cmds_filelst = os.path.join(sub_scripts_dir, "cmds_sh_file_filelst.sh")
             cmds_srun = os.path.join(sub_scripts_dir, "cmds_sh_file_srun.sh")
             cmds_sbatch = os.path.join(sub_scripts_dir, "cmds_sh_file_sbatch.sh")
@@ -469,7 +473,9 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
                                                                                                          cmds_sbatch))
 
             run_script_file.write("\n")
-            run_sbatch = os.path.join(sub_scripts_dir, "cmds_sh_file_sbatch_runall.sh.sh")
+
+            run_script_file.write("# Submit the jobs to the slurm batch queue.\n")
+            run_sbatch = os.path.join(sub_scripts_dir, "cmds_sh_file_sbatch_runall.sh")
             run_script_file.write("sh {}\n".format(run_sbatch))
 
 
