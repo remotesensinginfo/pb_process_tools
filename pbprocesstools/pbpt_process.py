@@ -141,7 +141,6 @@ class PBPTProcessToolsBase(ABC):
         """
         import pathlib
         tmp_dir_path = pathlib.Path(tmp_dir)
-        print(tmp_dir_path)
         if use_abs_path:
             tmp_dir_path = tmp_dir_path.resolve()
 
