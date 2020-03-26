@@ -140,15 +140,15 @@ class PBPTProcessToolsBase(ABC):
 
         """
         import pathlib
-        tmp_dir_path = pathlib.PurePath(tmp_dir)
-
+        tmp_dir_path = pathlib.Path(tmp_dir)
+        print(tmp_dir_path)
         if use_abs_path:
             tmp_dir_path = tmp_dir_path.resolve()
 
         if add_uid:
             last_dir_name = tmp_dir_path.parent.name
             last_dir_name_uid = "{}_{}".format(last_dir_name, self.uid)
-            tmp_dir_path = tmp_dir_path.parent.joinpath(pathlib.PurePath(last_dir_name_uid))
+            tmp_dir_path = tmp_dir_path.parent.joinpath(pathlib.Path(last_dir_name_uid))
 
         created = False
         if not tmp_dir_path.exists():
@@ -166,7 +166,7 @@ class PBPTProcessToolsBase(ABC):
         import shutil
         import pathlib
 
-        in_dir_path = pathlib.PurePath(in_dir)
+        in_dir_path = pathlib.Path(in_dir)
         if in_dir_path.exists():
             shutil.rmtree(in_dir, ignore_errors=True)
 
@@ -233,7 +233,7 @@ class PBPTProcessTool(PBPTProcessToolsBase):
 
         """
         rtn_val = True
-        fields = self.required_fields(kwargs)
+        fields = self.required_fields(**kwargs)
         err_fields = []
         for field in fields:
             if field not in self.params:
@@ -275,7 +275,7 @@ class PBPTProcessTool(PBPTProcessToolsBase):
             with open(args.params) as f:
                 self.params = json.load(f)
 
-            if not self.check_required_fields(kwargs):
+            if not self.check_required_fields(**kwargs):
                 raise Exception("The required fields where not present.")
         except Exception:
             import traceback
