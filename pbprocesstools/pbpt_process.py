@@ -58,6 +58,19 @@ class PBPTProcessToolsBase(ABC):
         randomStr = randomStr.replace("-","")
         return randomStr[0:size]
 
+    def generate_readable_timestamp_str(self):
+        """
+        A function which generates a timestamp string which is suitable
+        to include within a file name.
+
+        :return: string.
+
+        """
+        from datetime import datetime
+        now_time = datetime.now()
+        return now_time.strftime("d%Y%m%d_t%H%M%S")
+
+
     def find_file(self, dir_path, file_search):
         """
         Search for a single file with a path using glob. Therefore, the file
@@ -169,6 +182,134 @@ class PBPTProcessToolsBase(ABC):
         if in_dir_path.exists():
             shutil.rmtree(in_dir, ignore_errors=True)
 
+    def check_gdal_image_file(self, gdal_img):
+        """
+        A function which checks a GDAL compatible image file and returns an error message if appropriate.
+
+        :param gdal_img: the file path to the gdal image file.
+        :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
+
+        """
+        print("FILE: {}".format(gdal_img))
+        file_ok = True
+        err_str = ''
+        if os.path.exists(gdal_img):
+            from osgeo import gdal
+            gdal.UseExceptions()
+            try:
+                raster_ds = gdal.Open(gdal_img, gdal.GA_ReadOnly)
+                if raster_ds is None:
+                    file_ok = False
+                    err_str = 'GDAL could not open the dataset.'
+            except Exception as e:
+                file_ok = False
+                err_str = str(e)
+        else:
+            file_ok = False
+            err_str = 'File does not exist.'
+        return file_ok, err_str
+
+    def check_gdal_vector_file(self, gdal_vec):
+        """
+        A function which checks a GDAL compatible vector file and returns an error message if appropriate.
+
+        :param gdal_vec: the file path to the gdal vector file.
+        :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
+
+        """
+        file_ok = True
+        err_str = ''
+        if os.path.exists(gdal_vec):
+            from osgeo import gdal
+            gdal.UseExceptions()
+            try:
+                vec_ds = gdal.OpenEx(gdal_vec, gdal.OF_VECTOR )
+                if vec_ds is None:
+                    file_ok = False
+                    err_str = 'GDAL could not open the data source.'
+                else:
+                    for lyr_idx in range(vec_ds.GetLayerCount()):
+                        vec_lyr = vec_ds.GetLayerByIndex(lyr_idx)
+                        if vec_lyr is None:
+                            file_ok = False
+                            err_str = 'GDAL could not open all the vector layers.'
+                            break
+            except Exception as e:
+                file_ok = False
+                err_str = str(e)
+        else:
+            file_ok = False
+            err_str = 'File does not exist.'
+        return file_ok, err_str
+
+    def check_hdf5_file(self, h5_file):
+        """
+        A function which checks a HDF5 file and returns an error message if appropriate.
+
+        :param h5_file: the file path to the HDF5 file.
+        :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
+
+        """
+        file_ok = True
+        err_str = ''
+        if os.path.exists(h5_file):
+            try:
+                import h5py
+                fH5 = h5py.File(h5_file, 'r')
+                if fH5 is None:
+                    file_ok = False
+                    err_str = 'h5py could not open the dataset.'
+            except Exception as e:
+                file_ok = False
+                err_str = str(e)
+        else:
+            file_ok = False
+            err_str = 'File does not exist.'
+        return file_ok, err_str
+
+    def check_files(self, files_dict):
+        """
+        A function which test whether the files listed are present and for some formats
+        will perform a check the file can be read.
+
+        At present the format options are:
+
+         * gdal_image
+         * gdal_vector
+         * hdf5
+
+        :param files_dict: dict with the structure key: filepath, value:format
+
+        :return: tuple (boolean, dict with outputs as keys and error message as the value)
+
+        """
+        files_present = True
+        errs_dict = dict()
+        for filepath in files_dict:
+            if not os.path.exists(filepath):
+                files_present = False
+                errs_dict[filepath] = "Does not exist in file system."
+            else:
+                if files_dict[filepath].lower() == 'gdal_image':
+                    # Test GDAL image
+                    file_ok, err_str = self.check_gdal_image_file(filepath)
+                    if not file_ok:
+                        files_present = False
+                        errs_dict[filepath] = err_str
+                elif files_dict[filepath].lower() == 'gdal_vector':
+                    # Test GDAL vector
+                    file_ok, err_str = self.check_gdal_vector_file(filepath)
+                    if not file_ok:
+                        files_present = False
+                        errs_dict[filepath] = err_str
+                elif files_dict[filepath].lower() == 'hdf5':
+                    # Test HDF5 file
+                    file_ok, err_str = self.check_hdf5_file(filepath)
+                    if not file_ok:
+                        files_present = False
+                        errs_dict[filepath] = err_str
+                # Else: just ignore, no test being undertaken - i.e., being present is enough...
+        return files_present, errs_dict
 
 class PBPTProcessTool(PBPTProcessToolsBase):
     """
@@ -184,7 +325,8 @@ class PBPTProcessTool(PBPTProcessToolsBase):
 
         :param cmd_name: optionally provide the name of the command (i.e., the python script name).
         :param descript: optionally provide a description of the command file.
-        :param params: optionally provide a list of dicts, which will relate to each command options.
+        :param params: optionally provide a dict which will be the options for the processing to execute
+                       (e.g., the input and output files).
 
         """
         self.cmd_name = cmd_name
@@ -192,12 +334,24 @@ class PBPTProcessTool(PBPTProcessToolsBase):
         self.params = params
         super().__init__(uid_len)
 
+    def set_params(self, params):
+        """
+        A function to set the parameters used for the analysis without setting them within the
+        constructor or via a command line JSON file.
+
+        :param params: provide a dict which will be the options for the processing to execute
+                       (e.g., the input and output files).
+
+        """
+        self.params = params
+
     @abstractmethod
     def do_processing(self, **kwargs):
         """
         An abstract function to undertake processing.
 
-        :param kwargs:
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.do_processing(option_a=True, option_b=100)).
 
         """
         pass
@@ -211,6 +365,23 @@ class PBPTProcessTool(PBPTProcessToolsBase):
         :param kwargs: allows the user to pass custom variables to the function
                        (e.q., obj.required_fields(mod_version=True)).
         :return: list of strings
+
+        """
+        pass
+
+    @abstractmethod
+    def outputs_present(self, **kwargs):
+        """
+        An abstract function which is required to returns a tuple (boolean, dict with outputs as keys and error
+        message as the value). The boolean relates to whether all the outputs are present on the system; True all
+        are present and the dict will be empty, False and some of the outputs will not be present and an error
+        message will be available within the dict.
+
+        Note. for many applications this function can simply call self.check_files returning it's output.
+
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.outputs_present(mod_version=True)).
+        :return: tuple (boolean, dict with outputs as keys and error message as the value)
 
         """
         pass
@@ -282,7 +453,6 @@ class PBPTProcessTool(PBPTProcessToolsBase):
             return False
         return True
 
-
 class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
 
     def __init__(self, cmd, cmds_sh_file, out_cmds_base=None, uid_len=6):
@@ -319,6 +489,64 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         """
         pass
 
+    def check_job_outputs(self, process_tools_mod, process_tools_cls, out_err_file,
+                                cmds_sh_file=None, out_cmds_base=None, **kwargs):
+        """
+        A function which following the completion of all the processing for a job tests whether all the output
+        files where created (i.e., the job successfully completed).
+
+        :param process_tools_mod: the module (i.e., path to python script) containing the implementation
+                                  of the PBPTProcessTool class used for the processing to be checked.
+        :param process_tools_cls: the name of the class implementing the PBPTProcessTool class used
+                                  for the processing to be checked.
+        :param out_err_file: the output file name and path for the output report from this function.
+        :param cmds_sh_file: optional input to override the __init__ variable. The output file with the list of
+                             the commands to be executed (e.g., /file/path/cmds_list.sh).
+        :param out_cmds_base: optional input to override the __init__ variable. the base output file name and path
+                              for the individual commands (e.g., /file/path/sgl_cmd_).
+        :param kwargs: allows the user to pass custom variables to the function (e.q., obj.gen_command_info(input='')),
+                       these will be passed to the process_tools_mod outputs_present function.
+
+        """
+        import importlib
+        import glob
+        import json
+
+        if cmds_sh_file is None:
+            cmds_sh_file = self.cmds_sh_file
+        if out_cmds_base is None:
+            out_cmds_base = self.out_cmds_base
+
+        cmds_sh_file = os.path.abspath(cmds_sh_file)
+
+        if out_cmds_base is None:
+            cmds_sh_file_path = os.path.split(cmds_sh_file)[0]
+            cmds_sh_file_basename = os.path.splitext(os.path.basename(cmds_sh_file))[0]
+            out_cmds_base = os.path.join(cmds_sh_file_path, '{}_cmd_'.format(cmds_sh_file_basename))
+
+        out_cmds_base = os.path.abspath(out_cmds_base)
+
+        process_tools_mod_inst = importlib.import_module(process_tools_mod)
+        if process_tools_mod_inst is None:
+            raise Exception("Could not load the module: '{}'".format(process_tools_mod))
+
+        process_tools_cls_inst = getattr(process_tools_mod_inst, process_tools_cls)()
+        if process_tools_cls_inst is None:
+            raise Exception("Could not create instance of '{}'".format(process_tools_cls))
+
+        err_dict = dict()
+        param_files = glob.glob("{}*.json".format(out_cmds_base))
+        for param_file in param_files:
+            with open(param_file) as param_file_obj:
+                params = json.load(param_file_obj)
+                process_tools_cls_inst.set_params(params)
+                files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
+                if not files_present:
+                    err_dict[param_file] = errs_dict
+
+        with open(out_err_file, 'w') as out_err_file_obj:
+            json.dump(err_dict, out_err_file_obj, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
+
     def write_cmd_files(self, cmd=None, cmds_sh_file=None, out_cmds_base=None):
         """
         A function to write the output files for the commands.
@@ -344,8 +572,6 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             cmds_sh_file_path = os.path.split(cmds_sh_file)[0]
             cmds_sh_file_basename = os.path.splitext(os.path.basename(cmds_sh_file))[0]
             out_cmds_base = os.path.join(cmds_sh_file_path, '{}_cmd_'.format(cmds_sh_file_basename))
-        else:
-            out_cmds_base = os.path.abspath(out_cmds_base)
 
         out_cmds_base = os.path.abspath(out_cmds_base)
         out_cmds_dir_path = os.path.dirname(out_cmds_base)
@@ -477,6 +703,53 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             run_sbatch = os.path.join(sub_scripts_dir, "cmds_sh_file_sbatch_runall.sh")
             run_script_file.write("sh {}\n".format(run_sbatch))
 
+    @abstractmethod
+    def run_gen_commands(self):
+        """
+        An abstract function which needs to be implemented with the functions and inputs
+        you want run to generate the various commands and scripts to be executed.
 
+        You will presumably want to call:
 
+         * self.gen_command_info
+         * self.write_cmd_files
 
+        and then maybe
+
+         * create_slurm_sub_sh
+
+        """
+        pass
+
+    @abstractmethod
+    def run_check_outputs(self):
+        """
+        An abstract function which needs to be implemented with the functions and inputs
+        you want run to check the outputs of the processing have been successfully completed.
+
+        You will presumably want to call:
+
+         * self.check_job_outputs
+
+        """
+        pass
+
+    def parse_cmds(self, argv=None):
+        """
+        A function to parse the command line arguments to retrieve the
+        processing parameters.
+
+        :param argv: A list of the of inputs (e.g., ['--gen'] or ['--check']
+
+        """
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--gen", action='store_true', default=False, help="Execute run_gen_commands() function.")
+        parser.add_argument("--check", action='store_true', default=False, help="Execute run_check_outputs() function.")
+        if argv is None:
+            argv = sys.argv[1:]
+        args = parser.parse_args(argv)
+
+        if args.gen:
+            self.run_gen_commands()
+        elif args.check:
+            self.run_check_outputs()
