@@ -37,7 +37,7 @@ from distutils.core import setup
 import os
 
 setup(name='pb_process_tools',
-    version='0.0.14',
+    version='0.0.15',
     description='Tools for batch processing data, including with HPC with slurm.',
     author='Pete Bunting',
     author_email='pfb@aber.ac.uk',

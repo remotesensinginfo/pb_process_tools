@@ -35,7 +35,9 @@ See other source files for details
 import argparse
 import json
 import sys
-import os.path
+import pathlib
+import os
+import shutil
 import tqdm
 from abc import ABC, abstractmethod
 
@@ -69,7 +71,7 @@ class PBPTProcessToolsBase(ABC):
         """
         from datetime import datetime
         now_time = datetime.now()
-        return now_time.strftime("d%Y%m%d_t%H%M%S")
+        return now_time.strftime("%Y%m%d_%H%M%S")
 
 
     def find_file(self, dir_path, file_search):
@@ -138,13 +140,13 @@ class PBPTProcessToolsBase(ABC):
             basename = out_basename
         return basename
 
-    def create_dir(self, tmp_dir, use_abs_path=True, add_uid=False):
+    def create_dir(self, dir_path, use_abs_path=True, add_uid=False):
         """
         A function which creates a temporary directory and optionally adds
         a unique ID to the last directory within the path so each time the
         process executes a unique temporary is created.
 
-        :param tmp_dir: an input string with the temporary directory path.
+        :param dir_path: an input string with the directory path to be created.
         :param use_abs_path: a boolean specifying whether the input path should be
                              converted to an absolute path if a relative path has been provided.
                              The default is True.
@@ -153,35 +155,31 @@ class PBPTProcessToolsBase(ABC):
                 directory was created or already existed (True = created).
 
         """
-        import pathlib
-        tmp_dir_path = pathlib.Path(tmp_dir)
+        dir_path_obj = pathlib.Path(dir_path)
         if use_abs_path:
-            tmp_dir_path = tmp_dir_path.resolve()
+            dir_path_obj = dir_path_obj.resolve()
 
         if add_uid:
-            last_dir_name = tmp_dir_path.parent.name
+            last_dir_name = dir_path_obj.parent.name
             last_dir_name_uid = "{}_{}".format(last_dir_name, self.uid)
-            tmp_dir_path = tmp_dir_path.parent.joinpath(pathlib.Path(last_dir_name_uid))
+            dir_path_obj = dir_path_obj.parent.joinpath(pathlib.Path(last_dir_name_uid))
 
         created = False
-        if not tmp_dir_path.exists():
-            tmp_dir_path.mkdir()
+        if not dir_path_obj.exists():
+            dir_path_obj.mkdir()
             created = True
-        return str(tmp_dir_path), created
+        return str(dir_path_obj), created
 
-    def remove_dir(self, in_dir):
+    def remove_dir(self, dir_path):
         """
         A function which deletes the in_dir and its contents.
 
-        :param in_dir: an input string with the directory path to be removed.
+        :param dir_path: an input string with the directory path to be removed.
 
         """
-        import shutil
-        import pathlib
-
-        in_dir_path = pathlib.Path(in_dir)
-        if in_dir_path.exists():
-            shutil.rmtree(in_dir, ignore_errors=True)
+        dir_path_obj = pathlib.Path(dir_path)
+        if dir_path_obj.exists():
+            shutil.rmtree(dir_path, ignore_errors=True)
 
     def check_gdal_image_file(self, gdal_img):
         """
@@ -362,6 +360,18 @@ class PBPTProcessTool(PBPTProcessToolsBase):
         """
         pass
 
+    def completed_processing(self, **kwargs):
+        """
+        A function which will create a reference file, defined by 'confirm_exe'
+        key within the self.params dict.
+
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.completed_processing(option_a=True, option_b=100)).
+
+        """
+        if 'confirm_exe' in self.params:
+            pathlib.Path(self.params['confirm_exe']).touch()
+
     @abstractmethod
     def required_fields(self, **kwargs):
         """
@@ -459,9 +469,24 @@ class PBPTProcessTool(PBPTProcessToolsBase):
             return False
         return True
 
+    def std_run(self, **kwargs):
+        """
+        A function which runs a standard processing sequence of parsing the command input(s),
+        then called the do_processing() function and finally the completed_processing()
+        functions.
+
+        :param kwargs: allows the user to pass custom variables to the function (e.q., obj.std_run(var='blah')).
+                       These options are passed to the parse_cmds(), do_processing() and completed_processing()
+                       functions.
+
+        """
+        if self.parse_cmds(**kwargs):
+            self.do_processing(**kwargs)
+            self.completed_processing(**kwargs)
+
 class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
 
-    def __init__(self, cmd, cmds_sh_file, out_cmds_base=None, uid_len=6):
+    def __init__(self, cmd, cmds_sh_file, out_cmds_base=None, confirm_exe_dir='./exe_dir', uid_len=6):
         """
         A class to implement a the generation of commands for batch processing data analysis.
 
@@ -470,12 +495,17 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
                              (e.g., /file/path/cmds_list.sh).
         :param out_cmds_base: the base output file name and path for the individual commands
                               (e.g., /file/path/sgl_cmd_).
+        :param confirm_exe_dir: an output directory within which files will be created to confirm
+                                that processing has completed. If a job completion file is present
+                                it can be assumed that the job has full completed (i.e., an
+                                exception has not been thrown).
 
         """
         self.params = []
         self.cmd = cmd
         self.cmds_sh_file = cmds_sh_file
         self.out_cmds_base = out_cmds_base
+        self.confirm_exe_dir = confirm_exe_dir
         super().__init__(uid_len)
 
     @abstractmethod
@@ -495,7 +525,7 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         """
         pass
 
-    def check_job_outputs(self, process_tools_mod, process_tools_cls, out_err_file,
+    def check_job_outputs(self, process_tools_mod, process_tools_cls, out_err_file, out_non_comp_file,
                           cmd=None, cmds_sh_file=None, out_cmds_base=None, **kwargs):
         """
         A function which following the completion of all the processing for a job tests whether all the output
@@ -505,7 +535,10 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
                                   of the PBPTProcessTool class used for the processing to be checked.
         :param process_tools_cls: the name of the class implementing the PBPTProcessTool class used
                                   for the processing to be checked.
-        :param out_err_file: the output file name and path for the output report from this function.
+        :param out_err_file: the output file name and path for the output error report from this function
+                             where output files have not all be created.
+        :param out_non_comp_file: the output file name and path for the output error report from this function
+                                  where processing might not have fully completed.
         :param cmd: optional input to override the __init__ variable. The command to be executed
                     (e.g., python run_analysis.py).
         :param cmds_sh_file: optional input to override the __init__ variable. The output file with the list of
@@ -546,25 +579,36 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
 
         err_dict = dict()
         err_files = list()
+        non_comp_files = list()
         param_files = glob.glob("{}*.json".format(out_cmds_base))
         for param_file in tqdm.tqdm(param_files):
             with open(param_file) as param_file_obj:
                 params = json.load(param_file_obj)
+                if 'confirm_exe' in params:
+                    if not os.path.exists(params['confirm_exe']):
+                        non_comp_files.append(param_file)
+                        err_files.append(param_file)
                 process_tools_cls_inst.set_params(params)
                 files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
                 if not files_present:
                     err_dict[param_file] = errs_dict
-                    err_files.append(param_file)
+                    if param_file not in err_files:
+                        err_files.append(param_file)
 
         if len(err_files) > 0:
             with open(cmds_sh_file, 'w') as cmds_sh_file_obj:
                 for err_file in err_files:
                     cmds_sh_file_obj.write("{} -p {}\n".format(cmd, err_file))
 
+        if len(non_comp_files) > 0:
+            with open(out_non_comp_file, 'w') as out_non_comp_file_obj:
+                for non_comp_file in non_comp_files:
+                    out_non_comp_file_obj.write("{}\n".format(non_comp_file))
+
         with open(out_err_file, 'w') as out_err_file_obj:
             json.dump(err_dict, out_err_file_obj, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
 
-    def write_cmd_files(self, cmd=None, cmds_sh_file=None, out_cmds_base=None):
+    def write_cmd_files(self, cmd=None, cmds_sh_file=None, out_cmds_base=None, confirm_exe_dir=None):
         """
         A function to write the output files for the commands.
 
@@ -574,6 +618,9 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
                              the commands to be executed (e.g., /file/path/cmds_list.sh).
         :param out_cmds_base: optional input to override the __init__ variable. the base output file name and path
                               for the individual commands (e.g., /file/path/sgl_cmd_).
+        :param confirm_exe_dir: optional input to override the __init__ variable. an output directory within
+                                which files will be created to confirm that processing has completed.
+                                (e.g., /file/path/completed).
 
         """
         if cmd is None:
@@ -582,8 +629,12 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             cmds_sh_file = self.cmds_sh_file
         if out_cmds_base is None:
             out_cmds_base = self.out_cmds_base
+        if confirm_exe_dir is None:
+            confirm_exe_dir = self.confirm_exe_dir
 
         cmds_sh_file = os.path.abspath(cmds_sh_file)
+        confirm_exe_dir = os.path.abspath(confirm_exe_dir)
+        self.create_dir(confirm_exe_dir)
 
         if out_cmds_base is None:
             cmds_sh_file_path = os.path.split(cmds_sh_file)[0]
@@ -598,6 +649,10 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         with open(cmds_sh_file, 'w') as cmds_sh_file_obj:
             for i, param in tqdm.tqdm(enumerate(self.params)):
                 out_json_file = '{}{}.json'.format(out_cmds_base, i + 1)
+                job_basename = self.get_file_basename(out_json_file)
+                param['confirm_exe'] = os.path.join(confirm_exe_dir, "{}.ref".format(job_basename))
+                if os.path.exists(param['confirm_exe']):
+                    os.remove(param['confirm_exe'])
                 with open(out_json_file, 'w') as ojf:
                     json.dump(param, ojf, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
                 cmds_sh_file_obj.write("{} -p {}\n".format(cmd, out_json_file))
