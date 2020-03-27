@@ -486,7 +486,7 @@ class PBPTProcessTool(PBPTProcessToolsBase):
 
 class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
 
-    def __init__(self, cmd, cmds_sh_file, out_cmds_base=None, confirm_exe_dir='./exe_dir', uid_len=6):
+    def __init__(self, cmd, cmds_sh_file, out_cmds_base=None, confirm_exe_dir='./exe_comp_dir', uid_len=6):
         """
         A class to implement a the generation of commands for batch processing data analysis.
 
