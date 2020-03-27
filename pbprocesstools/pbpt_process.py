@@ -36,6 +36,7 @@ import argparse
 import json
 import sys
 import os.path
+import tqdm
 from abc import ABC, abstractmethod
 
 
@@ -190,7 +191,6 @@ class PBPTProcessToolsBase(ABC):
         :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
 
         """
-        print("FILE: {}".format(gdal_img))
         file_ok = True
         err_str = ''
         if os.path.exists(gdal_img):
@@ -201,6 +201,7 @@ class PBPTProcessToolsBase(ABC):
                 if raster_ds is None:
                     file_ok = False
                     err_str = 'GDAL could not open the dataset.'
+                raster_ds = None
             except Exception as e:
                 file_ok = False
                 err_str = str(e)
@@ -234,6 +235,7 @@ class PBPTProcessToolsBase(ABC):
                             file_ok = False
                             err_str = 'GDAL could not open all the vector layers.'
                             break
+                vec_ds = None
             except Exception as e:
                 file_ok = False
                 err_str = str(e)
@@ -255,8 +257,12 @@ class PBPTProcessToolsBase(ABC):
         if os.path.exists(h5_file):
             try:
                 import h5py
-                fH5 = h5py.File(h5_file, 'r')
-                if fH5 is None:
+                try:
+                    fH5 = h5py.File(h5_file, 'r')
+                    if fH5 is None:
+                        file_ok = False
+                        err_str = 'h5py could not open the dataset as returned a Null dataset.'
+                except:
                     file_ok = False
                     err_str = 'h5py could not open the dataset.'
             except Exception as e:
@@ -490,7 +496,7 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         pass
 
     def check_job_outputs(self, process_tools_mod, process_tools_cls, out_err_file,
-                                cmds_sh_file=None, out_cmds_base=None, **kwargs):
+                          cmd=None, cmds_sh_file=None, out_cmds_base=None, **kwargs):
         """
         A function which following the completion of all the processing for a job tests whether all the output
         files where created (i.e., the job successfully completed).
@@ -500,6 +506,8 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         :param process_tools_cls: the name of the class implementing the PBPTProcessTool class used
                                   for the processing to be checked.
         :param out_err_file: the output file name and path for the output report from this function.
+        :param cmd: optional input to override the __init__ variable. The command to be executed
+                    (e.g., python run_analysis.py).
         :param cmds_sh_file: optional input to override the __init__ variable. The output file with the list of
                              the commands to be executed (e.g., /file/path/cmds_list.sh).
         :param out_cmds_base: optional input to override the __init__ variable. the base output file name and path
@@ -512,6 +520,8 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         import glob
         import json
 
+        if cmd is None:
+            cmd = self.cmd
         if cmds_sh_file is None:
             cmds_sh_file = self.cmds_sh_file
         if out_cmds_base is None:
@@ -535,14 +545,21 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             raise Exception("Could not create instance of '{}'".format(process_tools_cls))
 
         err_dict = dict()
+        err_files = list()
         param_files = glob.glob("{}*.json".format(out_cmds_base))
-        for param_file in param_files:
+        for param_file in tqdm.tqdm(param_files):
             with open(param_file) as param_file_obj:
                 params = json.load(param_file_obj)
                 process_tools_cls_inst.set_params(params)
                 files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
                 if not files_present:
                     err_dict[param_file] = errs_dict
+                    err_files.append(param_file)
+
+        if len(err_files) > 0:
+            with open(cmds_sh_file, 'w') as cmds_sh_file_obj:
+                for err_file in err_files:
+                    cmds_sh_file_obj.write("{} -p {}\n".format(cmd, err_file))
 
         with open(out_err_file, 'w') as out_err_file_obj:
             json.dump(err_dict, out_err_file_obj, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
@@ -579,7 +596,7 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             os.mkdir(out_cmds_dir_path)
 
         with open(cmds_sh_file, 'w') as cmds_sh_file_obj:
-            for i, param in enumerate(self.params):
+            for i, param in tqdm.tqdm(enumerate(self.params)):
                 out_json_file = '{}{}.json'.format(out_cmds_base, i + 1)
                 with open(out_json_file, 'w') as ojf:
                     json.dump(param, ojf, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
