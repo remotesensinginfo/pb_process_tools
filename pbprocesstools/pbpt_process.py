@@ -604,6 +604,8 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             with open(out_non_comp_file, 'w') as out_non_comp_file_obj:
                 for non_comp_file in non_comp_files:
                     out_non_comp_file_obj.write("{}\n".format(non_comp_file))
+        else:
+            pathlib.Path(out_non_comp_file).touch()
 
         with open(out_err_file, 'w') as out_err_file_obj:
             json.dump(err_dict, out_err_file_obj, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
