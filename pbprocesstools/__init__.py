@@ -50,21 +50,26 @@ PB_PROCESS_TOOLS_COPYRIGHT_NAMES = "Pete Bunting"
 
 PB_PROCESS_TOOLS_SUPPORT_EMAIL = "rsgislib-support@googlegroups.com"
 
+pbpt_log_level = os.getenv('PBTP_LOG_LVL', 'INFO')
 
 log_default_level=logging.INFO
+if pbpt_log_level.upper() == 'INFO':
+    log_default_level = logging.INFO
+elif pbpt_log_level.upper() == 'DEBUG':
+    log_default_level = logging.DEBUG
+elif pbpt_log_level.upper() == 'WARNING':
+    log_default_level = logging.WARNING
+elif pbpt_log_level.upper() == 'ERROR':
+    log_default_level = logging.ERROR
+elif pbpt_log_level.upper() == 'CRITICAL':
+    log_default_level = logging.CRITICAL
+else:
+    raise Exception("Logging level specified ('{}') is not recognised.".format(pbpt_log_level))
 
-# Get install prefix
-install_prefix = __file__[:__file__.find('lib')]
-
-log_config_path = os.path.join(install_prefix, "share","pbprocesstools", "loggingconfig.json")
-
-log_config_value = os.getenv('PBPT_LOG_CFG', None)
-if log_config_value:
-    log_config_path = log_config_value
-if os.path.exists(log_config_path):
+log_config_path = os.getenv('PBPT_LOG_CFG', None)
+if (log_config_path is not None) and os.path.exists(log_config_path):
     with open(log_config_path, 'rt') as f:
         config = json.load(f)
     logging.config.dictConfig(config)
 else:
-    print('Warning: did not find a logging configuration file.')
-    logging.basicConfig(level=log_default_level)
+    logging.basicConfig(level=log_default_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
