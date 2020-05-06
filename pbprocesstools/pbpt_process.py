@@ -743,11 +743,11 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             run_script_file.write("# Split the input commands into a file for each job.\n")
             sub_cmds_sh_file = os.path.join(sub_scripts_dir, "cmds_sh_file.sh")
             if prepend is None:
-                run_script_file.write("splitcmdslist.py -i {} -o {} -f {}\n".format(cmds_sh_file,
+                run_script_file.write("splitcmdslist.py -i {} -o {} -f {} --dealsplit\n".format(cmds_sh_file,
                                                                                     sub_cmds_sh_file,
                                                                                     n_jobs))
             else:
-                run_script_file.write("{} splitcmdslist.py -i {} -o {} -f {}\n".format(prepend,
+                run_script_file.write("{} splitcmdslist.py -i {} -o {} -f {} --dealsplit\n".format(prepend,
                                                                                        cmds_sh_file,
                                                                                        sub_cmds_sh_file,
                                                                                        n_jobs))
