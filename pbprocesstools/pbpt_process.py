@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-pb_process_tools - this file is needed to ensure it can be imported
+pb_process_tools - this file has classes for batch processing data
 
 See other source files for details
 """
@@ -22,7 +22,7 @@ See other source files for details
 # limitations under the License.
 #
 #
-# Purpose:  Setup variables and imports across the whole module
+# Purpose:  Tool for batch processing data.
 #
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
