@@ -34,8 +34,186 @@ import logging
 import gzip
 import json
 import datetime
+import os
+import time
+import glob
 
 logger = logging.getLogger(__name__)
+
+class PBPTUtils(object):
+
+    def get_file_lock(self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600):
+        """
+        A function which gets a lock on a file.
+
+        The lock file will be a unix hidden file (i.e., starts with a .) and it will have .lok added to the end.
+        E.g., for input file hello_world.txt the lock file will be .hello_world.txt.lok. The contents of the lock
+        file will be the time and date of creation.
+
+        Using the default parameters (sleep 1 second and wait 120 iterations) if the lock isn't available
+        it will be retried every second for 120 seconds (i.e., 2 mins).
+
+        :param input_file: The input file for which the lock will be created.
+        :param sleep_period: time in seconds to sleep for, if the lock isn't available. (Default=1 second)
+        :param wait_iters: the number of iterations to wait for before giving up. (Default=120)
+        :param use_except: Boolean. If True then an exception will be thrown if the lock is not
+                           available. If False (default) False will be returned if the lock is
+                           not successful.
+        :return: boolean. True: lock was successfully gained. False: lock was not gained.
+
+        """
+        file_path, file_name = os.path.split(input_file)
+        lock_file_name = ".{}.lok".format(file_name)
+        lock_file_path = os.path.join(file_path, lock_file_name)
+
+        got_lock = False
+        for i in range(wait_iters+1):
+            if not os.path.exists(lock_file_path):
+                got_lock = True
+                break
+            self.clean_file_locks(file_path, timeout)
+            time.sleep(sleep_period)
+
+        if got_lock:
+            c_datetime = datetime.datetime.now()
+            f = open(lock_file_path, 'w')
+            f.write('{}\n'.format(c_datetime.isoformat()))
+            f.flush()
+            f.close()
+        elif use_except:
+            raise Exception("Lock could not be gained for file: {}".format(input_file))
+
+        return got_lock
+
+    def release_file_lock(self, input_file):
+        """
+        A function which releases a lock file for the input file.
+
+        :param input_file: The input file for which the lock will be created.
+
+        """
+        file_path, file_name = os.path.split(input_file)
+        lock_file_name = ".{}.lok".format(file_name)
+        lock_file_path = os.path.join(file_path, lock_file_name)
+        if os.path.exists(lock_file_path):
+            os.remove(lock_file_path)
+
+    def clean_file_locks(self, dir_path, timeout=3600):
+        """
+        A function which cleans up any remaining lock file (i.e., if an application has crashed).
+        The timeout time will be compared with the time written within the file.
+
+        :param dir_path: the file path to search for lock files (i.e., ".*.lok")
+        :param timeout: the time (in seconds) for the timeout. Default: 3600 (1 hours)
+
+        """
+        c_dateime = datetime.datetime.now()
+        lock_files = glob.glob(os.path.join(dir_path, ".*.lok"))
+        for lock_file_path in lock_files:
+            create_date_str = self.readTextFileNoNewLines(lock_file_path)
+            create_date = datetime.datetime.fromisoformat(create_date_str)
+            time_since_create = (c_dateime - create_date).total_seconds()
+            if time_since_create > timeout:
+                os.remove(lock_file_path)
+
+    def readTextFileNoNewLines(self, file):
+        """
+        Read a text file into a single string
+        removing new lines.
+
+        :param file: File path to the input file.
+        :return: string
+
+        """
+        txtStr = ""
+        try:
+            dataFile = open(file, 'r')
+            for line in dataFile:
+                txtStr += line.strip()
+            dataFile.close()
+        except Exception as e:
+            raise e
+        return txtStr
+
+    def readTextFile2List(self, file):
+        """
+        Read a text file into a list where each line
+        is an element in the list.
+
+        :param file: File path to the input file.
+        :return: list
+
+        """
+        outList = []
+        try:
+            dataFile = open(file, 'r')
+            for line in dataFile:
+                line = line.strip()
+                if line != "":
+                    outList.append(line)
+            dataFile.close()
+        except Exception as e:
+            raise e
+        return outList
+
+    def writeList2File(self, dataList, outFile):
+        """
+        Write a list a text file, one line per item.
+
+        :param dataList: List of values to be written to the output file.
+        :param out_file: File path to the output file.
+
+        """
+        try:
+            f = open(outFile, 'w')
+            for item in dataList:
+               f.write(str(item)+'\n')
+            f.flush()
+            f.close()
+        except Exception as e:
+            raise e
+
+    def writeData2File(self, data_val, out_file):
+        """
+        Write some data (a string or can be converted to a string using str(data_val) to
+        an output text file.
+
+        :param data_val: Data to be written to the output file.
+        :param out_file: File path to the output file.
+
+        """
+        try:
+            f = open(out_file, 'w')
+            f.write(str(data_val)+'\n')
+            f.flush()
+            f.close()
+        except Exception as e:
+            raise e
+
+    def writeDict2JSON(self, data_dict, out_file):
+        """
+        Write some data to a JSON file. The data would commonly be structured as a dict but could also be a list.
+
+        :param data_dict: The dict (or list) to be written to the output JSON file.
+        :param out_file: The file path to the output file.
+
+        """
+        import json
+        with open(out_file, 'w') as fp:
+            json.dump(data_dict, fp, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
+
+    def readJSON2Dict(self, input_file):
+        """
+        Read a JSON file. Will return a list or dict.
+
+        :param input_file: input JSON file path.
+
+        """
+        import json
+        with open(input_file) as f:
+            data = json.load(f)
+        return data
+
 
 
 class PBPTTextFileUtils(object):

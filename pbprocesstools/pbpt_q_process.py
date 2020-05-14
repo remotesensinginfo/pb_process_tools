@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-pb_process_tools - this file has classes for batch processing data
+pb_process_tools - this file has classes for batch processing data using a queue
 
 See other source files for details
 """
@@ -22,11 +22,11 @@ See other source files for details
 # limitations under the License.
 #
 #
-# Purpose:  Tool for batch processing data.
+# Purpose:  Tool for batch processing data using a queue.
 #
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
-# Date: 25/03/2020
+# Date: 13/05/2020
 # Version: 1.0
 #
 # History:
@@ -37,302 +37,54 @@ import json
 import sys
 import pathlib
 import os
+import logging
+import datetime
 import shutil
 import tqdm
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+
+from sqlalchemy.ext.declarative import declarative_base
+import sqlalchemy
+
+from pbprocesstools.pbpt_utils import PBPTUtils
+from pbprocesstools.pbpt_process import PBPTProcessToolsBase
+
+logger = logging.getLogger(__name__)
+
+Base = declarative_base()
+
+class PBPTProcessJob(Base):
+    __tablename__ = "PBPTProcessJob"
+
+    PID = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+    JobParams = sqlalchemy.Column(sqlalchemy.JSON, nullable=True)
+    Start = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+    End = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+    Started = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
+    Completed = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
 
 
-class PBPTProcessToolsBase(ABC):
-
-    def __init__(self, uid_len=6):
-        self.uid = self.uid_generator(size=uid_len)
-        super().__init__()
-
-    def uid_generator(self, size=6):
-        """
-        A function which will generate a 'random' string of the specified length based on the UUID
-
-        :param size: the length of the returned string.
-        :return: string of length size.
-
-        """
-        import uuid
-        randomStr = str(uuid.uuid4())
-        randomStr = randomStr.replace("-","")
-        return randomStr[0:size]
-
-    def generate_readable_timestamp_str(self):
-        """
-        A function which generates a timestamp string which is suitable
-        to include within a file name.
-
-        :return: string.
-
-        """
-        from datetime import datetime
-        now_time = datetime.now()
-        return now_time.strftime("%Y%m%d_%H%M%S")
-
-
-    def find_file(self, dir_path, file_search):
-        """
-        Search for a single file with a path using glob. Therefore, the file
-        path returned is a true path. Within the fileSearch provide the file
-        name with '*' as wildcard(s). Returns None is not found.
-
-        :param dir_path: the file path(s) to be searched. Can be either a single string or a list of file paths
-                         to be searched.
-        :param file_search: the file search string.
-        :return: a string with the file path found or None is either no file paths are
-                 found or multiple paths are found.
-
-        """
-        import glob
-        import os.path
-
-        # Test whether a string has been inputted. If a string has been
-        # provided then make it a list with one element.
-        if isinstance(dir_path, str):
-            dir_path = [dir_path]
-
-        for c_dir_path in dir_path:
-            files = glob.glob(os.path.join(c_dir_path, file_search))
-            if len(files) > 0:
-                break
-
-        if len(files) != 1:
-            return None
-        return files[0]
-
-    def get_file_basename(self, filepath, checkvalid=False, n_comps=0):
-        """
-        Uses os.path module to return file basename (i.e., path and extension removed)
-
-        :param filepath: string for the input file name and path
-        :param checkvalid: if True then resulting basename will be checked for punctuation
-                           characters (other than underscores) and spaces, punctuation
-                           will be either removed and spaces changed to an underscore.
-                           (Default = False)
-        :param n_comps: if > 0 then the resulting basename will be split using underscores
-                        and the return based name will be defined using the n_comps
-                        components split by under scores.
-        :return: basename for file
-
-        """
-        import string
-        basename = os.path.splitext(os.path.basename(filepath))[0]
-        if checkvalid:
-            basename = basename.replace(' ', '_')
-            for punct in string.punctuation:
-                if (punct != '_') and (punct != '-'):
-                    basename = basename.replace(punct, '')
-        if n_comps > 0:
-            basename_split = basename.split('_')
-            if len(basename_split) < n_comps:
-                raise Exception("The number of components specified is more than "
-                                "the number of components in the basename.")
-            out_basename = ""
-            for i in range(n_comps):
-                if i == 0:
-                    out_basename = basename_split[i]
-                else:
-                    out_basename = out_basename + '_' + basename_split[i]
-            basename = out_basename
-        return basename
-
-    def create_dir(self, dir_path, use_abs_path=True, add_uid=False):
-        """
-        A function which creates a temporary directory and optionally adds
-        a unique ID to the last directory within the path so each time the
-        process executes a unique temporary is created.
-
-        :param dir_path: an input string with the directory path to be created.
-        :param use_abs_path: a boolean specifying whether the input path should be
-                             converted to an absolute path if a relative path has been provided.
-                             The default is True.
-        :param add_uid: A boolean specifying whether a UID should be added to the tmp_dir_path
-        :return: (str, bool) returns the path of the temporary directory created and boolean as to whether the
-                directory was created or already existed (True = created).
-
-        """
-        dir_path_obj = pathlib.Path(dir_path)
-        if use_abs_path:
-            dir_path_obj = dir_path_obj.resolve()
-
-        if add_uid:
-            last_dir_name = dir_path_obj.parent.name
-            last_dir_name_uid = "{}_{}".format(last_dir_name, self.uid)
-            dir_path_obj = dir_path_obj.parent.joinpath(pathlib.Path(last_dir_name_uid))
-
-        created = False
-        if not dir_path_obj.exists():
-            dir_path_obj.mkdir()
-            created = True
-        return str(dir_path_obj), created
-
-    def remove_dir(self, dir_path):
-        """
-        A function which deletes the in_dir and its contents.
-
-        :param dir_path: an input string with the directory path to be removed.
-
-        """
-        dir_path_obj = pathlib.Path(dir_path)
-        if dir_path_obj.exists():
-            shutil.rmtree(dir_path, ignore_errors=True)
-
-    def check_gdal_image_file(self, gdal_img):
-        """
-        A function which checks a GDAL compatible image file and returns an error message if appropriate.
-
-        :param gdal_img: the file path to the gdal image file.
-        :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
-
-        """
-        file_ok = True
-        err_str = ''
-        if os.path.exists(gdal_img):
-            from osgeo import gdal
-            gdal.UseExceptions()
-            try:
-                raster_ds = gdal.Open(gdal_img, gdal.GA_ReadOnly)
-                if raster_ds is None:
-                    file_ok = False
-                    err_str = 'GDAL could not open the dataset.'
-                raster_ds = None
-            except Exception as e:
-                file_ok = False
-                err_str = str(e)
-        else:
-            file_ok = False
-            err_str = 'File does not exist.'
-        return file_ok, err_str
-
-    def check_gdal_vector_file(self, gdal_vec):
-        """
-        A function which checks a GDAL compatible vector file and returns an error message if appropriate.
-
-        :param gdal_vec: the file path to the gdal vector file.
-        :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
-
-        """
-        file_ok = True
-        err_str = ''
-        if os.path.exists(gdal_vec):
-            from osgeo import gdal
-            gdal.UseExceptions()
-            try:
-                vec_ds = gdal.OpenEx(gdal_vec, gdal.OF_VECTOR )
-                if vec_ds is None:
-                    file_ok = False
-                    err_str = 'GDAL could not open the data source.'
-                else:
-                    for lyr_idx in range(vec_ds.GetLayerCount()):
-                        vec_lyr = vec_ds.GetLayerByIndex(lyr_idx)
-                        if vec_lyr is None:
-                            file_ok = False
-                            err_str = 'GDAL could not open all the vector layers.'
-                            break
-                vec_ds = None
-            except Exception as e:
-                file_ok = False
-                err_str = str(e)
-        else:
-            file_ok = False
-            err_str = 'File does not exist.'
-        return file_ok, err_str
-
-    def check_hdf5_file(self, h5_file):
-        """
-        A function which checks a HDF5 file and returns an error message if appropriate.
-
-        :param h5_file: the file path to the HDF5 file.
-        :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
-
-        """
-        file_ok = True
-        err_str = ''
-        if os.path.exists(h5_file):
-            try:
-                import h5py
-                try:
-                    fH5 = h5py.File(h5_file, 'r')
-                    if fH5 is None:
-                        file_ok = False
-                        err_str = 'h5py could not open the dataset as returned a Null dataset.'
-                except:
-                    file_ok = False
-                    err_str = 'h5py could not open the dataset.'
-            except Exception as e:
-                file_ok = False
-                err_str = str(e)
-        else:
-            file_ok = False
-            err_str = 'File does not exist.'
-        return file_ok, err_str
-
-    def check_files(self, files_dict):
-        """
-        A function which test whether the files listed are present and for some formats
-        will perform a check the file can be read.
-
-        At present the format options are:
-
-         * gdal_image
-         * gdal_vector
-         * hdf5
-
-        :param files_dict: dict with the structure key: filepath, value:format
-
-        :return: tuple (boolean, dict with outputs as keys and error message as the value)
-
-        """
-        files_present = True
-        errs_dict = dict()
-        for filepath in files_dict:
-            if not os.path.exists(filepath):
-                files_present = False
-                errs_dict[filepath] = "Does not exist in file system."
-            else:
-                if files_dict[filepath].lower() == 'gdal_image':
-                    # Test GDAL image
-                    file_ok, err_str = self.check_gdal_image_file(filepath)
-                    if not file_ok:
-                        files_present = False
-                        errs_dict[filepath] = err_str
-                elif files_dict[filepath].lower() == 'gdal_vector':
-                    # Test GDAL vector
-                    file_ok, err_str = self.check_gdal_vector_file(filepath)
-                    if not file_ok:
-                        files_present = False
-                        errs_dict[filepath] = err_str
-                elif files_dict[filepath].lower() == 'hdf5':
-                    # Test HDF5 file
-                    file_ok, err_str = self.check_hdf5_file(filepath)
-                    if not file_ok:
-                        files_present = False
-                        errs_dict[filepath] = err_str
-                # Else: just ignore, no test being undertaken - i.e., being present is enough...
-        return files_present, errs_dict
-
-class PBPTProcessTool(PBPTProcessToolsBase):
+class PBPTQProcessTool(PBPTProcessToolsBase):
     """
     An abstract class for aiding the quick creation
-    of simple processing scripts which take their
+    of data processing scripts which take their
     parameters from the command line using a JSON
     file as the input.
     """
 
-    def __init__(self, cmd_name=None, descript=None, params=None, uid_len=6):
+    def __init__(self, queue_db_info=None, cmd_name=None, descript=None, params=None, uid_len=6):
         """
-        A class to implement a processing tool for batch processing data analysis.
+        A class to implement a processing tool for batch processing data analysis using a queue.
 
+        :param queue_db_info: The database dict info. Require fields: sqlite_db_conn, sqlite_db_file
         :param cmd_name: optionally provide the name of the command (i.e., the python script name).
         :param descript: optionally provide a description of the command file.
         :param params: optionally provide a dict which will be the options for the processing to execute
                        (e.g., the input and output files).
 
+
         """
+        self.queue_db_info = queue_db_info
         self.cmd_name = cmd_name
         self.descript = descript
         self.params = params
@@ -348,6 +100,43 @@ class PBPTProcessTool(PBPTProcessToolsBase):
 
         """
         self.params = params
+
+    def set_queue_db_info(self, queue_db_info):
+        """
+        Set the queue database info.
+
+        :param queue_db_info: The database dict info. Require fields: sqlite_db_conn, sqlite_db_file
+
+        """
+        self.queue_db_info = queue_db_info
+
+    def check_db_info(self):
+        """
+        A function which tests whether the required database info is present and
+        works.
+
+        """
+        if 'sqlite_db_conn' not in self.queue_db_info:
+            raise Exception("sqlite_db_conn key has is not present.")
+
+        if 'sqlite_db_file' not in self.queue_db_info:
+            raise Exception("sqlite_db_file key has is not present.")
+
+        if not os.path.exists(self.queue_db_info['sqlite_db_file']):
+            raise Exception("The SQLite database file does not exist: '{}'".format(self.queue_db_info['sqlite_db_file']))
+
+        try:
+            logger.debug("Creating Database Engine and Session.")
+            db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'])
+            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+            ses = session_sqlalc()
+            ses.close()
+            logger.debug("Created Database Engine and Session.")
+        except:
+            raise Exception("The SQLite database file cannot be opened: '{}'".format(self.queue_db_info['sqlite_db']))
+
+        return True
+
 
     @abstractmethod
     def do_processing(self, **kwargs):
@@ -369,8 +158,22 @@ class PBPTProcessTool(PBPTProcessToolsBase):
                        (e.q., obj.completed_processing(option_a=True, option_b=100)).
 
         """
-        if 'confirm_exe' in self.params:
-            pathlib.Path(self.params['confirm_exe']).touch()
+        pbpt_utils = PBPTUtils()
+        if pbpt_utils.get_file_lock(self.queue_db_info['sqlite_db_file'], sleep_period=1, wait_iters=180, use_except=False, timeout=60):
+            logger.debug("Creating Database Engine and Session.")
+            db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'])
+            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+            ses = session_sqlalc()
+            logger.debug("Created Database Engine and Session.")
+
+            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+            if job_info is not None:
+                job_info.Completed = True
+                job_info.End = datetime.datetime.now()
+                ses.commit()
+            ses.close()
+            pbpt_utils.release_file_lock(self.queue_db_info['sqlite_db_file'])
+
 
     @abstractmethod
     def required_fields(self, **kwargs):
@@ -451,18 +254,16 @@ class PBPTProcessTool(PBPTProcessToolsBase):
         """
         try:
             parser = argparse.ArgumentParser(prog=self.cmd_name, description=self.descript)
-            parser.add_argument("-p", "--params", type=str,
+            parser.add_argument("-d", "--dbinfo", type=str,
                                 required=True, help="Specify a file path for a JSON file "
-                                                    "containing the input processing"
-                                                    "parameters.")
+                                                    "containing the database info")
             if argv is None:
                 argv = sys.argv[1:]
             args = parser.parse_args(argv)
-            with open(args.params) as f:
-                self.params = json.load(f)
 
-            if not self.check_required_fields(**kwargs):
-                raise Exception("The required fields where not present.")
+            with open(args.dbinfo) as f:
+                self.queue_db_info = json.load(f)
+            self.check_db_info()
         except Exception:
             import traceback
             traceback.print_exception(*sys.exc_info())
@@ -480,32 +281,66 @@ class PBPTProcessTool(PBPTProcessToolsBase):
                        functions.
 
         """
+        logger.debug("Starting to execute the 'std_run' function.")
+        pbpt_utils = PBPTUtils()
         if self.parse_cmds(**kwargs):
-            self.do_processing(**kwargs)
-            self.completed_processing(**kwargs)
+            sqlite_db_file = self.queue_db_info['sqlite_db_file']
+            sqlite_db_conn = self.queue_db_info['sqlite_db_conn']
+            logger.debug("Database connection info: '{}'.".format(sqlite_db_conn))
+            found_job = False
+            while True:
+                if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False, timeout=60):
+                    try:
+                        logger.debug("Creating Database Engine and Session.")
+                        db_engine = sqlalchemy.create_engine(sqlite_db_conn)
+                        session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                        ses = session_sqlalc()
+                        logger.debug("Created Database Engine and Session.")
 
-class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
+                        logger.debug("Find the next scene to process.")
+                        job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Completed == False,
+                                                                    PBPTProcessJob.Started == False).order_by(
+                                                                    PBPTProcessJob.PID.asc()).first()
+                        if job_info is not None:
+                            found_job = True
+                            self.job_pid = job_info.PID
+                            self.params = job_info.JobParams
+                            job_info.Started = True
+                            job_info.Start = datetime.datetime.now()
+                            ses.commit()
+                            logger.debug("Found the next scene to process. PID: {}".format(self.job_pid))
+                        else:
+                            found_job = False
+                            logger.debug("No job found to process - finishing.")
+                        ses.close()
+                        logger.debug("Closed Database Engine and Session.")
+                    except Exception as e:
+                        logger.debug("Failed to create the database connection: '{}'".format(sqlite_db_conn))
+                        logger.exception(e)
+                        found_job = False
+                    pbpt_utils.release_file_lock(sqlite_db_file)
+                    if found_job:
+                        self.check_required_fields(**kwargs)
+                        self.do_processing(**kwargs)
+                        self.completed_processing(**kwargs)
+                    else:
+                        break
 
-    def __init__(self, cmd, cmds_sh_file, out_cmds_base=None, confirm_exe_dir='./exe_comp_dir', uid_len=6):
+
+class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
+
+    def __init__(self, cmd, sqlite_db_file, uid_len=6):
         """
         A class to implement a the generation of commands for batch processing data analysis.
 
         :param cmd: the command to be executed (e.g., python run_analysis.py).
-        :param cmds_sh_file: the output file with the list of the commands to be executed
-                             (e.g., /file/path/cmds_list.sh).
-        :param out_cmds_base: the base output file name and path for the individual commands
-                              (e.g., /file/path/sgl_cmd_).
-        :param confirm_exe_dir: an output directory within which files will be created to confirm
-                                that processing has completed. If a job completion file is present
-                                it can be assumed that the job has full completed (i.e., an
-                                exception has not been thrown).
+        :param queue_db_info: The database dict info. Require fields: sqlite_db_conn, sqlite_db_file
 
         """
         self.params = []
         self.cmd = cmd
-        self.cmds_sh_file = cmds_sh_file
-        self.out_cmds_base = out_cmds_base
-        self.confirm_exe_dir = confirm_exe_dir
+        self.sqlite_db_file = os.path.abspath(sqlite_db_file)
+        self.sqlite_db_conn = "sqlite:///{}".format(self.sqlite_db_file)
         super().__init__(uid_len)
 
     @abstractmethod
@@ -525,8 +360,7 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         """
         pass
 
-    def check_job_outputs(self, process_tools_mod, process_tools_cls, out_err_file, out_non_comp_file,
-                          cmd=None, cmds_sh_file=None, out_cmds_base=None, **kwargs):
+    def check_job_outputs(self, process_tools_mod, process_tools_cls, out_err_pid_file, out_err_info_file, **kwargs):
         """
         A function which following the completion of all the processing for a job tests whether all the output
         files where created (i.e., the job successfully completed).
@@ -535,39 +369,19 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
                                   of the PBPTProcessTool class used for the processing to be checked.
         :param process_tools_cls: the name of the class implementing the PBPTProcessTool class used
                                   for the processing to be checked.
-        :param out_err_file: the output file name and path for the output error report from this function
-                             where output files have not all be created.
-        :param out_non_comp_file: the output file name and path for the output error report from this function
+        :param out_err_pid_file: the output file name and path for the list of database PIDs which have not
+                                 been successfully processed.
+        :param out_err_info_file: the output file name and path for the output error report from this function
                                   where processing might not have fully completed.
-        :param cmd: optional input to override the __init__ variable. The command to be executed
-                    (e.g., python run_analysis.py).
-        :param cmds_sh_file: optional input to override the __init__ variable. The output file with the list of
-                             the commands to be executed (e.g., /file/path/cmds_list.sh).
-        :param out_cmds_base: optional input to override the __init__ variable. the base output file name and path
-                              for the individual commands (e.g., /file/path/sgl_cmd_).
         :param kwargs: allows the user to pass custom variables to the function (e.q., obj.gen_command_info(input='')),
                        these will be passed to the process_tools_mod outputs_present function.
 
         """
         import importlib
-        import glob
-        import json
 
-        if cmd is None:
-            cmd = self.cmd
-        if cmds_sh_file is None:
-            cmds_sh_file = self.cmds_sh_file
-        if out_cmds_base is None:
-            out_cmds_base = self.out_cmds_base
-
-        cmds_sh_file = os.path.abspath(cmds_sh_file)
-
-        if out_cmds_base is None:
-            cmds_sh_file_path = os.path.split(cmds_sh_file)[0]
-            cmds_sh_file_basename = os.path.splitext(os.path.basename(cmds_sh_file))[0]
-            out_cmds_base = os.path.join(cmds_sh_file_path, '{}_cmd_'.format(cmds_sh_file_basename))
-
-        out_cmds_base = os.path.abspath(out_cmds_base)
+        queue_db_info = dict()
+        queue_db_info['sqlite_db_file'] = self.sqlite_db_file
+        queue_db_info['sqlite_db_conn'] = self.sqlite_db_conn
 
         process_tools_mod_inst = importlib.import_module(process_tools_mod)
         if process_tools_mod_inst is None:
@@ -576,91 +390,121 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
         process_tools_cls_inst = getattr(process_tools_mod_inst, process_tools_cls)()
         if process_tools_cls_inst is None:
             raise Exception("Could not create instance of '{}'".format(process_tools_cls))
+        process_tools_cls_inst.set_queue_db_info(queue_db_info)
 
-        err_dict = dict()
-        err_files = list()
-        non_comp_files = list()
-        param_files = glob.glob("{}*.json".format(out_cmds_base))
-        for param_file in tqdm.tqdm(param_files):
-            with open(param_file) as param_file_obj:
-                params = json.load(param_file_obj)
-                if 'confirm_exe' in params:
-                    if not os.path.exists(params['confirm_exe']):
-                        non_comp_files.append(param_file)
-                        err_files.append(param_file)
-                process_tools_cls_inst.set_params(params)
-                files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
-                if not files_present:
-                    err_dict[param_file] = errs_dict
-                    if param_file not in err_files:
-                        err_files.append(param_file)
+        pbpt_utils = PBPTUtils()
+        err_pids = []
+        err_info = dict()
+        if pbpt_utils.get_file_lock(self.sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False, timeout=60):
+            logger.debug("Creating Database Engine and Session.")
+            db_engine = sqlalchemy.create_engine(self.sqlite_db_conn)
+            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+            ses = session_sqlalc()
+            logger.debug("Created Database Engine and Session.")
 
-        if len(err_files) > 0:
-            with open(cmds_sh_file, 'w') as cmds_sh_file_obj:
-                for err_file in err_files:
-                    cmds_sh_file_obj.write("{} -p {}\n".format(cmd, err_file))
+            jobs = ses.query(PBPTProcessJob).filter().all()
+            n_errs = 0
+            if jobs is not None:
+                for job_info in tqdm.tqdm(jobs):
+                    if job_info.Completed:
+                        process_tools_cls_inst.set_params(job_info.JobParams)
+                        files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
+                        if not files_present:
+                            n_errs = n_errs + 1
+                            err_pids.append(job_info.PID)
+                            err_info[job_info.PID] = errs_dict
+                    else:
+                        n_errs = n_errs + 1
+                        err_pids.append(job_info.PID)
+                        if job_info.Started:
+                            job_info.Started = False
+                            ses.commit()
+                            err_info[job_info.PID] = "Started but did not complete."
+                        else:
+                            err_info[job_info.PID] = "Never Started."
+            ses.close()
+            pbpt_utils.release_file_lock(self.sqlite_db_file)
 
-        if len(non_comp_files) > 0:
-            with open(out_non_comp_file, 'w') as out_non_comp_file_obj:
-                for non_comp_file in non_comp_files:
-                    out_non_comp_file_obj.write("{}\n".format(non_comp_file))
+        if len(err_pids) > 0:
+            pbpt_utils.writeList2File(err_pids, out_err_pid_file)
+            pbpt_utils.writeDict2JSON(err_info, out_err_info_file)
         else:
-            pathlib.Path(out_non_comp_file).touch()
+            pathlib.Path(out_err_pid_file).touch()
+            pathlib.Path(out_err_info_file).touch()
 
-        with open(out_err_file, 'w') as out_err_file_obj:
-            json.dump(err_dict, out_err_file_obj, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
-
-    def write_cmd_files(self, cmd=None, cmds_sh_file=None, out_cmds_base=None, confirm_exe_dir=None):
+    def pop_params_db(self):
         """
         A function to write the output files for the commands.
 
         :param cmd: optional input to override the __init__ variable. The command to be executed
                     (e.g., python run_analysis.py).
-        :param cmds_sh_file: optional input to override the __init__ variable. The output file with the list of
-                             the commands to be executed (e.g., /file/path/cmds_list.sh).
-        :param out_cmds_base: optional input to override the __init__ variable. the base output file name and path
-                              for the individual commands (e.g., /file/path/sgl_cmd_).
-        :param confirm_exe_dir: optional input to override the __init__ variable. an output directory within
-                                which files will be created to confirm that processing has completed.
-                                (e.g., /file/path/completed).
 
         """
-        if cmd is None:
-            cmd = self.cmd
-        if cmds_sh_file is None:
-            cmds_sh_file = self.cmds_sh_file
-        if out_cmds_base is None:
-            out_cmds_base = self.out_cmds_base
-        if confirm_exe_dir is None:
-            confirm_exe_dir = self.confirm_exe_dir
+        logger.debug("Creating Database Engine.")
+        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn)
+        logger.debug("Drop system table if within the existing database.")
+        Base.metadata.drop_all(db_engine)
+        logger.debug("Creating Database.")
+        Base.metadata.bind = db_engine
+        Base.metadata.create_all()
 
-        cmds_sh_file = os.path.abspath(cmds_sh_file)
-        confirm_exe_dir = os.path.abspath(confirm_exe_dir)
-        self.create_dir(confirm_exe_dir)
+        logger.debug("Creating Database Session.")
+        session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+        ses = session_sqlalc()
+        logger.debug("Created Database Engine and Session.")
 
-        if out_cmds_base is None:
-            cmds_sh_file_path = os.path.split(cmds_sh_file)[0]
-            cmds_sh_file_basename = os.path.splitext(os.path.basename(cmds_sh_file))[0]
-            out_cmds_base = os.path.join(cmds_sh_file_path, '{}_cmd_'.format(cmds_sh_file_basename))
-
-        out_cmds_base = os.path.abspath(out_cmds_base)
-        out_cmds_dir_path = os.path.dirname(out_cmds_base)
-        if not os.path.exists(out_cmds_dir_path):
-            os.mkdir(out_cmds_dir_path)
-
+        job_lst = []
         pbar = tqdm.tqdm(total=len(self.params))
-        with open(cmds_sh_file, 'w') as cmds_sh_file_obj:
-            for i, param in enumerate(self.params):
-                out_json_file = '{}{}.json'.format(out_cmds_base, i + 1)
-                job_basename = self.get_file_basename(out_json_file)
-                param['confirm_exe'] = os.path.join(confirm_exe_dir, "{}.ref".format(job_basename))
-                if os.path.exists(param['confirm_exe']):
-                    os.remove(param['confirm_exe'])
-                with open(out_json_file, 'w') as ojf:
-                    json.dump(param, ojf, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
-                cmds_sh_file_obj.write("{} -p {}\n".format(cmd, out_json_file))
-                cmds_sh_file_obj.flush()
-                pbar.update(1)
+        for i, param in enumerate(self.params):
+            job_lst.append(PBPTProcessJob(PID=i, JobParams=param))
+            pbar.update(1)
+
+        logger.debug("There are {} jobs to be written to the database.".format(len(job_lst)))
+        if len(job_lst) > 0:
+            ses.add_all(job_lst)
+            ses.commit()
+            logger.debug("Written jobs to the database.")
+        ses.close()
+
+    def create_shell_exe(self, run_script, cmds_sh_file, n_cores, db_info_file=None):
+        """
+        A function which generates the scripts to execute on a local
+        machine including using GNU parallel.
+
+        :param run_script: The script which will be executed to run analysis with multiple cores
+        :param cmds_sh_file: The shell script with the list of jobs to be executed
+                             (i.e., equal to the number of cores specified)
+        :param n_cores: The number of cores to use for processing - it is assumed that jobs will only use a
+                        single core but if your jobs are going to use multiple cores then you'll need to
+                        consider how many cores you are going to be using in total.
+        :param db_info_file: An output file which will given to the processing commands with the
+                             database connection info. If None then a unique file name will be create
+                             automatically.
+
+        """
+        pbpt_utils = PBPTUtils()
+        if db_info_file is None:
+            uid_str = self.uid_generator(8)
+            db_info_file = "process_db_info_{}.json".format(uid_str)
+            if os.path.exists(db_info_file):
+                raise Exception("Strange, the automatically generated database info file ({}) "
+                                "already exists - try re-running.".format(db_info_file))
+
+        db_info = dict()
+        db_info["sqlite_db_conn"] = self.sqlite_db_conn
+        db_info["sqlite_db_file"] = self.sqlite_db_file
+        pbpt_utils.writeDict2JSON(db_info, db_info_file)
+
+        lst_cmds = []
+        for n in range(n_cores):
+            lst_cmds.append("{0} --dbinfo {1}".format(self.cmd, db_info_file))
+
+        pbpt_utils.writeList2File(lst_cmds, cmds_sh_file)
+
+        # Create the run script with GNU parallel.
+        parallel_cmd = "parallel -j {} < {}".format(n_cores, cmds_sh_file)
+        pbpt_utils.writeData2File(parallel_cmd, run_script)
+
 
     def create_slurm_sub_sh(self, jobname, mem_per_core_mb, log_dirs, run_script='gen_exe_hpccmds.sh',
                             sbatch_config='config-sbatch.json', sbatch_template='sbatch_template.jinja2',
@@ -829,3 +673,8 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             self.run_gen_commands()
         elif args.check:
             self.run_check_outputs()
+
+
+
+
+

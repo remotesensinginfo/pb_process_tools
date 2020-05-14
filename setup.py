@@ -37,10 +37,10 @@ from distutils.core import setup
 import os
 
 setup(name='pb_process_tools',
-    version='1.0.0',
+    version='1.1.0',
     description='Tools for batch processing data, including with HPC with slurm.',
     author='Pete Bunting',
-    author_email='pfb@aber.ac.uk',
+    author_email='petebunting@mac.com',
     scripts=['bin/genslurmsub.py', 'bin/subcmdslurm.py', 'bin/splitcmdslist.py', 'bin/prefixcmdslst.py'],
     include_package_data=True,
     packages=['pbprocesstools'],
