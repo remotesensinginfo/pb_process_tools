@@ -486,6 +486,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         if db_info_file is None:
             uid_str = self.uid_generator(8)
             db_info_file = "process_db_info_{}.json".format(uid_str)
+            db_info_file = os.path.abspath(db_info_file)
             if os.path.exists(db_info_file):
                 raise Exception("Strange, the automatically generated database info file ({}) "
                                 "already exists - try re-running.".format(db_info_file))
@@ -498,130 +499,89 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         lst_cmds = []
         for n in range(n_cores):
             lst_cmds.append("{0} --dbinfo {1}".format(self.cmd, db_info_file))
-
         pbpt_utils.writeList2File(lst_cmds, cmds_sh_file)
 
         # Create the run script with GNU parallel.
         parallel_cmd = "parallel -j {} < {}".format(n_cores, cmds_sh_file)
         pbpt_utils.writeData2File(parallel_cmd, run_script)
 
-
-    def create_slurm_sub_sh(self, jobname, mem_per_core_mb, log_dirs, run_script='gen_exe_hpccmds.sh',
-                            sbatch_config='config-sbatch.json', sbatch_template='sbatch_template.jinja2',
-                            account_name=None, n_cores_per_job=10, n_jobs=10, job_time_limit='2-23:59',
-                            sub_scripts_dir='./subscriptsplit', prepend=None, cmds_sh_file=None,
-                            module_load='module load parallel singularity'):
+    def create_slurm_sub_sh(self, jobname, mem_per_core_mb, log_dir, run_script='run_exe_analysis.sh',
+                            job_dir="job_scripts", db_info_file=None, account_name=None, n_cores_per_job=10,
+                            n_jobs=10, job_time_limit='2-23:59', module_load='module load parallel singularity'):
         """
         A function which generates the scripts needed to run an analysis using slurm.
 
         :param jobname: The name of the job
         :param mem_per_core_mb: the amount of memory (in megabytes) for each job
-        :param log_dirs: a directory where the log files will be outputted.
+        :param log_dir: a directory where the log files will be outputted.
         :param run_script: the file name and path for the script to be executed.
-        :param sbatch_config: the file name and path for the config json file for the sbatch submission script.
-        :param sbatch_template: the file name and path for the jinja2 template for the sbatch submission script.
+        :param job_dir: directory where the job scripts will be written.
+        :param db_info_file: An output file which will given to the processing commands with the
+                             database connection info. If None then a unique file name will be create
+                             automatically.
         :param account_name: The slurm account name for the jobs to be submitted under.
         :param n_cores_per_job: the number of cores per job
         :param n_jobs: the number of jobs to split the input list of commands into.
         :param job_time_limit: The time limit for the job: Days-HH:MM e.g., 2-23:59; 2 days, 23 hours and 59 minutes.
-        :param sub_scripts_dir: a directory where the intermediate scripts to be generated to.
-        :param prepend: A command to be pre-appended to the commands in the output scripts
-                       (e.g., for singularity or docker)
-        :param cmds_sh_file: A custom commands list file. Normally not used.
         :param module_load: Module loads within the sbatch submission scripts. If None them ignored.
 
         """
-        log_dirs = os.path.abspath(log_dirs)
-        sub_scripts_dir = os.path.abspath(sub_scripts_dir)
-        sbatch_config = os.path.abspath(sbatch_config)
-        sbatch_template = os.path.abspath(sbatch_template)
-        if cmds_sh_file is None:
-            cmds_sh_file = self.cmds_sh_file
-        cmds_sh_file = os.path.abspath(cmds_sh_file)
+        pbpt_utils = PBPTUtils()
+        if db_info_file is None:
+            uid_str = self.uid_generator(8)
+            db_info_file = "process_db_info_{}.json".format(uid_str)
+            db_info_file = os.path.abspath(db_info_file)
+            if os.path.exists(db_info_file):
+                raise Exception("Strange, the automatically generated database info file ({}) "
+                                "already exists - try re-running.".format(db_info_file))
 
-        # Create the pbprocesstools sbatch config file.
-        sbatch_config_dict = dict()
-        sbatch_config_dict["pbprocesstools"] = dict()
-        sbatch_config_dict["pbprocesstools"]["sbatch"] = dict()
-        if account_name is not None:
-            sbatch_config_dict["pbprocesstools"]["sbatch"]["account"] = account_name
-        sbatch_config_dict["pbprocesstools"]["sbatch"]["jobname"] = jobname
-        sbatch_config_dict["pbprocesstools"]["sbatch"]["logfileout"] = os.path.join(log_dirs,
-                                                                                    "{}_log.out".format(jobname))
-        sbatch_config_dict["pbprocesstools"]["sbatch"]["logfileerr"] = os.path.join(log_dirs,
-                                                                                    "{}_log.err".format(jobname))
-        sbatch_config_dict["pbprocesstools"]["sbatch"]["time"] = job_time_limit
-        sbatch_config_dict["pbprocesstools"]["sbatch"]["mem_per_core_mb"] = "{}".format(mem_per_core_mb)
-        sbatch_config_dict["pbprocesstools"]["sbatch"]["ncores"] = "{}".format(n_cores_per_job)
+        db_info = dict()
+        db_info["sqlite_db_conn"] = self.sqlite_db_conn
+        db_info["sqlite_db_file"] = self.sqlite_db_file
+        pbpt_utils.writeDict2JSON(db_info, db_info_file)
 
-        with open(sbatch_config, 'w') as sbatch_config_file:
-            json.dump(sbatch_config_dict, sbatch_config_file, sort_keys=True, indent=4,
-                      separators=(',', ': '), ensure_ascii=False)
+        job_dir = os.path.abspath(job_dir)
+        if not os.path.exists(job_dir):
+            os.mkdir(job_dir)
 
-        # Create the sbatch template
-        with open(sbatch_template, 'w') as sbatch_template_file:
-            sbatch_template_file.write("#!/bin/bash --login\n")
-            sbatch_template_file.write("\n")
-            if account_name is not None:
-                sbatch_template_file.write("#SBATCH --account={{ account }}\n")
-            sbatch_template_file.write("#SBATCH --partition=compute\n")
-            sbatch_template_file.write("#SBATCH --job-name={{ jobname }}\n")
-            sbatch_template_file.write("#SBATCH --output={{ logfileout }}.%J\n")
-            sbatch_template_file.write("#SBATCH --error={{ logfileerr }}.%J\n")
-            sbatch_template_file.write("#SBATCH --time={{ time }}\n")
-            sbatch_template_file.write("#SBATCH --ntasks={{ ncores }}\n")
-            sbatch_template_file.write("#SBATCH --mem-per-cpu={{ mem_per_core_mb }}\n")
-            if module_load is not None:
-                sbatch_template_file.write("\n")
-                sbatch_template_file.write("{}\n".format(module_load))
-            sbatch_template_file.write("\n")
-            sbatch_template_file.write("parallel -N 1 --delay .2 -j $SLURM_NTASKS < {{cmds_file}}\n")
+        lst_cmds = []
+        for n in range(n_cores_per_job):
+            lst_cmds.append("{0} --dbinfo {1}".format(self.cmd, db_info_file))
+        cmds_sh_file = os.path.join(job_dir, "jobcmds.sh")
+        pbpt_utils.writeList2File(lst_cmds, cmds_sh_file)
 
-        # Create the shell script which runs the whole processing chain.
-        with open(run_script, 'w') as run_script_file:
-            run_script_file.write("#!/bin/bash\n")
-            run_script_file.write("# Check the scripts directory exists, if not then create\n")
-            run_script_file.write("if [ ! -d \"{}\" ]; then\n".format(sub_scripts_dir))
-            run_script_file.write("  mkdir {}\n".format(sub_scripts_dir))
-            run_script_file.write("fi\n")
-            run_script_file.write("\n")
+        log_dir = os.path.abspath(log_dir)
+        if not os.path.exists(log_dir):
+            os.mkdir(log_dir)
 
-            run_script_file.write("# Split the input commands into a file for each job.\n")
-            sub_cmds_sh_file = os.path.join(sub_scripts_dir, "cmds_sh_file.sh")
-            if prepend is None:
-                run_script_file.write("splitcmdslist.py -i {} -o {} -f {} --dealsplit\n".format(cmds_sh_file,
-                                                                                    sub_cmds_sh_file,
-                                                                                    n_jobs))
-            else:
-                run_script_file.write("{} splitcmdslist.py -i {} -o {} -f {} --dealsplit\n".format(prepend,
-                                                                                       cmds_sh_file,
-                                                                                       sub_cmds_sh_file,
-                                                                                       n_jobs))
-            run_script_file.write("\n")
+        jobname = pbpt_utils.check_str(jobname, rm_non_ascii=True, rm_dashs=True, rm_spaces=True, rm_punc=True)
+        sbatch_cmds = list()
+        for n in range(n_jobs):
+            sbatch_file = os.path.join(job_dir, "job_file_{}.sbatch".format(n))
+            c_jobname = "{}_{}".format(jobname, n)
+            out_log = os.path.join(log_dir, "{}_log.out".format(c_jobname))
+            err_log = os.path.join(log_dir, "{}_log.err".format(c_jobname))
+            with open(sbatch_file, 'w') as sbatch_file_obj:
+                sbatch_file_obj.write("#!/bin/bash --login\n")
+                sbatch_file_obj.write("\n")
+                if account_name is not None:
+                    sbatch_file_obj.write("#SBATCH --account={}\n".format(account_name))
+                sbatch_file_obj.write("#SBATCH --partition=compute\n")
+                sbatch_file_obj.write("#SBATCH --job-name={}\n".format(c_jobname))
+                sbatch_file_obj.write("#SBATCH --output={}.%J\n".format(out_log))
+                sbatch_file_obj.write("#SBATCH --error={}.%J\n".format(err_log))
+                sbatch_file_obj.write("#SBATCH --time={}\n".format(job_time_limit))
+                sbatch_file_obj.write("#SBATCH --ntasks={}\n".format(n_cores_per_job))
+                sbatch_file_obj.write("#SBATCH --mem-per-cpu={}\n".format(mem_per_core_mb))
+                if module_load is not None:
+                    sbatch_file_obj.write("\n")
+                    sbatch_file_obj.write("{}\n".format(module_load))
+                sbatch_file_obj.write("\n")
+                sbatch_file_obj.write("parallel -N 1 --delay .2 -j $SLURM_NTASKS < {}\n\n".format(cmds_sh_file))
+                sbatch_cmds.append("sbatch {}".format(sbatch_file))
 
-            run_script_file.write("# Create the SLURM job submission scripts.\n")
-            cmds_filelst = os.path.join(sub_scripts_dir, "cmds_sh_file_filelst.sh")
-            cmds_srun = os.path.join(sub_scripts_dir, "cmds_sh_file_srun.sh")
-            cmds_sbatch = os.path.join(sub_scripts_dir, "cmds_sh_file_sbatch.sh")
-            if prepend is None:
-                run_script_file.write("genslurmsub.py -c {} -t {} -i {} -f {} -o {} --multi\n".format(sbatch_config,
-                                                                                                      sbatch_template,
-                                                                                                      cmds_filelst,
-                                                                                                      cmds_srun,
-                                                                                                      cmds_sbatch))
-            else:
-                run_script_file.write("{} genslurmsub.py -c {} -t {} -i {} -f {} -o {} --multi\n".format(prepend,
-                                                                                                         sbatch_config,
-                                                                                                         sbatch_template,
-                                                                                                         cmds_filelst,
-                                                                                                         cmds_srun,
-                                                                                                         cmds_sbatch))
+        pbpt_utils.writeList2File(sbatch_cmds, run_script)
 
-            run_script_file.write("\n")
-
-            run_script_file.write("# Submit the jobs to the slurm batch queue.\n")
-            run_sbatch = os.path.join(sub_scripts_dir, "cmds_sh_file_sbatch_runall.sh")
-            run_script_file.write("sh {}\n".format(run_sbatch))
 
     @abstractmethod
     def run_gen_commands(self):
