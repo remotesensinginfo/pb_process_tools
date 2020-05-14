@@ -111,9 +111,13 @@ class PBPTUtils(object):
         lock_files = glob.glob(os.path.join(dir_path, ".*.lok"))
         for lock_file_path in lock_files:
             create_date_str = self.readTextFileNoNewLines(lock_file_path)
-            create_date = datetime.datetime.fromisoformat(create_date_str)
-            time_since_create = (c_dateime - create_date).total_seconds()
-            if time_since_create > timeout:
+            create_date_str = create_date_str.strip()
+            if create_date_str != "":
+                create_date = datetime.datetime.fromisoformat(create_date_str)
+                time_since_create = (c_dateime - create_date).total_seconds()
+                if time_since_create > timeout:
+                    os.remove(lock_file_path)
+            else:
                 os.remove(lock_file_path)
 
     def readTextFileNoNewLines(self, file):
@@ -127,10 +131,11 @@ class PBPTUtils(object):
         """
         txtStr = ""
         try:
-            dataFile = open(file, 'r')
-            for line in dataFile:
-                txtStr += line.strip()
-            dataFile.close()
+            if os.path.exists(file):
+                dataFile = open(file, 'r')
+                for line in dataFile:
+                    txtStr += line.strip()
+                dataFile.close()
         except Exception as e:
             raise e
         return txtStr
