@@ -44,6 +44,8 @@ import tqdm
 from abc import abstractmethod
 
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.engine import Engine
+from sqlalchemy import event
 import sqlalchemy
 
 from pbprocesstools.pbpt_utils import PBPTUtils
@@ -63,6 +65,15 @@ class PBPTProcessJob(Base):
     Started = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
     Completed = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
 
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode = MEMORY")
+    cursor.execute("PRAGMA synchronous = OFF")
+    cursor.execute("PRAGMA temp_store = MEMORY")
+    cursor.execute("PRAGMA cache_size = 500000")
+    cursor.close()
 
 class PBPTQProcessTool(PBPTProcessToolsBase):
     """
@@ -284,6 +295,8 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                        functions.
 
         """
+        import time
+        import random
         logger.debug("Starting to execute the 'std_run' function.")
         pbpt_utils = PBPTUtils()
         if self.parse_cmds(**kwargs):
@@ -291,6 +304,8 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
             sqlite_db_conn = self.queue_db_info['sqlite_db_conn']
             logger.debug("Database connection info: '{}'.".format(sqlite_db_conn))
             found_job = False
+            # Sleep for a random period of time to minimise clashes between multiple processes so they are offset.
+            time.sleep((random.random()*10))
             while True:
                 if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False):
                     try:
