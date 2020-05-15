@@ -84,18 +84,25 @@ class PBPTUtils(object):
 
         return got_lock
 
-    def release_file_lock(self, input_file):
+    def release_file_lock(self, input_file, timeout=3600):
         """
-        A function which releases a lock file for the input file.
+        A function which releases a lock file for the input file. If for some reason
+        removing the lock file fails then the clean_file_locks is called and the timeout
+        variable will be called.
 
         :param input_file: The input file for which the lock will be created.
+        :param timeout: the time (in seconds) for the timeout. Default: 3600 (1 hours).
 
         """
         file_path, file_name = os.path.split(input_file)
         lock_file_name = ".{}.lok".format(file_name)
         lock_file_path = os.path.join(file_path, lock_file_name)
         if os.path.exists(lock_file_path):
-            os.remove(lock_file_path)
+            try:
+                os.remove(lock_file_path)
+            except:
+                logger.debug("Failed to remove lock file so calling clean_file_locks.")
+                self.clean_file_locks(file_path, timeout)
 
     def clean_file_locks(self, dir_path, timeout=3600):
         """
