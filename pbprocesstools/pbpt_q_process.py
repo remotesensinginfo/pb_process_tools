@@ -127,7 +127,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
 
         try:
             logger.debug("Creating Database Engine and Session.")
-            db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'])
+            db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'], pool_pre_ping=True)
             session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
             ses = session_sqlalc()
             ses.close()
@@ -159,20 +159,23 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
 
         """
         pbpt_utils = PBPTUtils()
-        if pbpt_utils.get_file_lock(self.queue_db_info['sqlite_db_file'], sleep_period=1, wait_iters=180, use_except=False, timeout=60):
-            logger.debug("Creating Database Engine and Session.")
-            db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'])
-            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
-            ses = session_sqlalc()
-            logger.debug("Created Database Engine and Session.")
+        if pbpt_utils.get_file_lock(self.queue_db_info['sqlite_db_file'], sleep_period=1, wait_iters=180, use_except=False):
+            try:
+                logger.debug("Creating Database Engine and Session.")
+                db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'], pool_pre_ping=True)
+                session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                ses = session_sqlalc()
+                logger.debug("Created Database Engine and Session.")
 
-            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
-            if job_info is not None:
-                job_info.Completed = True
-                job_info.End = datetime.datetime.now()
-                ses.commit()
-            ses.close()
-            pbpt_utils.release_file_lock(self.queue_db_info['sqlite_db_file'])
+                job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+                if job_info is not None:
+                    job_info.Completed = True
+                    job_info.End = datetime.datetime.now()
+                    ses.commit()
+                ses.close()
+                pbpt_utils.release_file_lock(self.queue_db_info['sqlite_db_file'])
+            except:
+                pbpt_utils.release_file_lock(self.queue_db_info['sqlite_db_file'])
 
 
     @abstractmethod
@@ -289,10 +292,10 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
             logger.debug("Database connection info: '{}'.".format(sqlite_db_conn))
             found_job = False
             while True:
-                if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False, timeout=60):
+                if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False):
                     try:
                         logger.debug("Creating Database Engine and Session.")
-                        db_engine = sqlalchemy.create_engine(sqlite_db_conn)
+                        db_engine = sqlalchemy.create_engine(sqlite_db_conn, pool_pre_ping=True)
                         session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
                         ses = session_sqlalc()
                         logger.debug("Created Database Engine and Session.")
@@ -395,35 +398,39 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         pbpt_utils = PBPTUtils()
         err_pids = []
         err_info = dict()
-        if pbpt_utils.get_file_lock(self.sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False, timeout=60):
-            logger.debug("Creating Database Engine and Session.")
-            db_engine = sqlalchemy.create_engine(self.sqlite_db_conn)
-            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
-            ses = session_sqlalc()
-            logger.debug("Created Database Engine and Session.")
 
-            jobs = ses.query(PBPTProcessJob).filter().all()
-            n_errs = 0
-            if jobs is not None:
-                for job_info in tqdm.tqdm(jobs):
-                    if job_info.Completed:
-                        process_tools_cls_inst.set_params(job_info.JobParams)
-                        files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
-                        if not files_present:
+        if pbpt_utils.get_file_lock(self.sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False):
+            try:
+                logger.debug("Creating Database Engine and Session.")
+                db_engine = sqlalchemy.create_engine(self.sqlite_db_conn, pool_pre_ping=True)
+                session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                ses = session_sqlalc()
+                logger.debug("Created Database Engine and Session.")
+
+                jobs = ses.query(PBPTProcessJob).filter().all()
+                n_errs = 0
+                if jobs is not None:
+                    for job_info in tqdm.tqdm(jobs):
+                        if job_info.Completed:
+                            process_tools_cls_inst.set_params(job_info.JobParams)
+                            files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
+                            if not files_present:
+                                n_errs = n_errs + 1
+                                err_pids.append(job_info.PID)
+                                err_info[job_info.PID] = errs_dict
+                        else:
                             n_errs = n_errs + 1
                             err_pids.append(job_info.PID)
-                            err_info[job_info.PID] = errs_dict
-                    else:
-                        n_errs = n_errs + 1
-                        err_pids.append(job_info.PID)
-                        if job_info.Started:
-                            job_info.Started = False
-                            ses.commit()
-                            err_info[job_info.PID] = "Started but did not complete."
-                        else:
-                            err_info[job_info.PID] = "Never Started."
-            ses.close()
-            pbpt_utils.release_file_lock(self.sqlite_db_file)
+                            if job_info.Started:
+                                job_info.Started = False
+                                ses.commit()
+                                err_info[job_info.PID] = "Started but did not complete."
+                            else:
+                                err_info[job_info.PID] = "Never Started."
+                ses.close()
+                pbpt_utils.release_file_lock(self.sqlite_db_file)
+            except:
+                pbpt_utils.release_file_lock(self.sqlite_db_file)
 
         if len(err_pids) > 0:
             pbpt_utils.writeList2File(err_pids, out_err_pid_file)
@@ -441,7 +448,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
         """
         logger.debug("Creating Database Engine.")
-        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn)
+        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn, pool_pre_ping=True)
         logger.debug("Drop system table if within the existing database.")
         Base.metadata.drop_all(db_engine)
         logger.debug("Creating Database.")

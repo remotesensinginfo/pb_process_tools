@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 class PBPTUtils(object):
 
-    def get_file_lock(self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600):
+    def get_file_lock(self, input_file, sleep_period=1, wait_iters=120, use_except=False):
         """
         A function which gets a lock on a file.
 
@@ -71,7 +71,6 @@ class PBPTUtils(object):
             if not os.path.exists(lock_file_path):
                 got_lock = True
                 break
-            self.clean_file_locks(file_path, timeout)
             time.sleep(sleep_period)
 
         if got_lock:
