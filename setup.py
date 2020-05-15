@@ -37,7 +37,7 @@ from distutils.core import setup
 import os
 
 setup(name='pb_process_tools',
-    version='1.1.6',
+    version='1.1.7',
     description='Tools for batch processing data, including with HPC with slurm.',
     author='Pete Bunting',
     author_email='petebunting@mac.com',
@@ -49,7 +49,7 @@ setup(name='pb_process_tools',
     data_files=[(os.path.join('share','pbprocesstools'),
                 [os.path.join('share','loggingconfig.json')])],
     license='LICENSE.txt',
-    install_requires=['jinja2'],
+    install_requires=['jinja2', 'sqlalchemy', 'tqdm'],
     url='https://bitbucket.org/petebunting/pb_process_tools',
     classifiers=['Intended Audience :: Developers',
     	  'Intended Audience :: HPC Users',

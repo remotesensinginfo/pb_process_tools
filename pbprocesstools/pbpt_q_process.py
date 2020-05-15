@@ -47,6 +47,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.engine import Engine
 from sqlalchemy import event
 import sqlalchemy
+from sqlite3 import Connection as SQLite3Connection
 
 from pbprocesstools.pbpt_utils import PBPTUtils
 from pbprocesstools.pbpt_process import PBPTProcessToolsBase
@@ -68,12 +69,13 @@ class PBPTProcessJob(Base):
 
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode = MEMORY")
-    cursor.execute("PRAGMA synchronous = OFF")
-    cursor.execute("PRAGMA temp_store = MEMORY")
-    cursor.execute("PRAGMA cache_size = 500000")
-    cursor.close()
+    if isinstance(dbapi_connection, SQLite3Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode = MEMORY")
+        cursor.execute("PRAGMA synchronous = OFF")
+        cursor.execute("PRAGMA temp_store = MEMORY")
+        cursor.execute("PRAGMA cache_size = 500000")
+        cursor.close()
 
 class PBPTQProcessTool(PBPTProcessToolsBase):
     """
