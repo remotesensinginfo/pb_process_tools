@@ -306,8 +306,10 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
             found_job = False
             # Sleep for a random period of time to minimise clashes between multiple processes so they are offset.
             time.sleep((random.random()*10))
+            n_failed_lck = 0
             while True:
                 if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False):
+                    n_failed_lck = 0
                     try:
                         logger.debug("Creating Database Engine and Session.")
                         db_engine = sqlalchemy.create_engine(sqlite_db_conn, pool_pre_ping=True)
@@ -343,6 +345,12 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                         self.completed_processing(**kwargs)
                     else:
                         break
+                else:
+                    n_failed_lck = n_failed_lck + 1
+
+                if n_failed_lck > 5:
+                    break
+
 
 
 class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
