@@ -47,6 +47,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.engine import Engine
 from sqlalchemy import event
 import sqlalchemy
+from sqlalchemy.orm.attributes import flag_modified
 from sqlite3 import Connection as SQLite3Connection
 
 from pbprocesstools.pbpt_utils import PBPTUtils
@@ -65,6 +66,9 @@ class PBPTProcessJob(Base):
     End = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
     Started = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
     Completed = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
+    Checked = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
+    Error = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False, default=False)
+    ErrorInfo = sqlalchemy.Column(sqlalchemy.JSON, nullable=True)
 
 
 @event.listens_for(Engine, "connect")
@@ -183,6 +187,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                 job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
                 if job_info is not None:
                     job_info.Completed = True
+                    job_info.Error = False
                     job_info.End = datetime.datetime.now()
                     ses.commit()
                 ses.close()
@@ -190,6 +195,38 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
             except:
                 pbpt_utils.release_file_lock(self.queue_db_info['sqlite_db_file'])
 
+    def record_process_error(self, err_info, **kwargs):
+        """
+        A function records an error in the database. Usually called instead of completed_processing.
+
+        :param err_info: a dict with information on the error to be stored in the
+                         database.
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.completed_processing(option_a=True, option_b=100)).
+
+        """
+        pbpt_utils = PBPTUtils()
+        if pbpt_utils.get_file_lock(self.queue_db_info['sqlite_db_file'], sleep_period=1, wait_iters=180,
+                                    use_except=False):
+            try:
+                logger.debug("Creating Database Engine and Session.")
+                db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'], pool_pre_ping=True)
+                session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                ses = session_sqlalc()
+                logger.debug("Created Database Engine and Session.")
+
+                job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+                if job_info is not None:
+                    job_info.Completed = False
+                    job_info.Error = True
+                    job_info.ErrorInfo = err_info
+                    job_info.End = None
+                    flag_modified(job_info, "ErrorInfo")
+                    ses.commit()
+                ses.close()
+                pbpt_utils.release_file_lock(self.queue_db_info['sqlite_db_file'])
+            except:
+                pbpt_utils.release_file_lock(self.queue_db_info['sqlite_db_file'])
 
     @abstractmethod
     def required_fields(self, **kwargs):
@@ -343,8 +380,15 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                     pbpt_utils.release_file_lock(sqlite_db_file)
                     if found_job:
                         self.check_required_fields(**kwargs)
-                        self.do_processing(**kwargs)
-                        self.completed_processing(**kwargs)
+                        try:
+                            self.do_processing(**kwargs)
+                            self.completed_processing(**kwargs)
+                        except Exception as e:
+                            import traceback
+                            err_dict = dict()
+                            err_dict['error'] = str(e)
+                            err_dict['traceback'] = traceback.format_exc()
+                            self.record_process_error(err_dict)
                     else:
                         break
                 else:
@@ -432,7 +476,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                 ses = session_sqlalc()
                 logger.debug("Created Database Engine and Session.")
 
-                jobs = ses.query(PBPTProcessJob).filter().all()
+                jobs = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Checked==False).all()
                 n_errs = 0
                 if jobs is not None:
                     for job_info in tqdm.tqdm(jobs):
@@ -443,6 +487,9 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                                 n_errs = n_errs + 1
                                 err_pids.append(job_info.PID)
                                 err_info[job_info.PID] = errs_dict
+                            else:
+                                job_info.Checked = True
+                                ses.commit()
                         else:
                             n_errs = n_errs + 1
                             err_pids.append(job_info.PID)
@@ -463,6 +510,85 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         else:
             pathlib.Path(out_err_pid_file).touch()
             pathlib.Path(out_err_info_file).touch()
+
+    def create_jobs_report(self, out_report_file=None):
+        """
+        A function which generates a JSON report which can either
+        be written to the console or an output file.
+
+        :param out_report_file: Optional file path for output report file, in JSON file.
+                                If None then report gets written to the console.
+
+        """
+        import statistics
+
+        logger.debug("Creating Database Engine and Session.")
+        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn, pool_pre_ping=True)
+        session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+        ses = session_sqlalc()
+        logger.debug("Created Database Engine and Session.")
+
+        jobs = ses.query(PBPTProcessJob).all()
+        n_errs = 0
+        n_completed = 0
+        n_started = 0
+        n_ended = 0
+        n_jobs = 0
+        job_times = []
+        err_info = dict()
+        status_info = dict()
+        if jobs is not None:
+            for job_info in tqdm.tqdm(jobs):
+                if job_info.Completed:
+                    job_times.append((job_info.End - job_info.Start).total_seconds())
+                    n_completed += 1
+                    n_started += 1
+                    n_ended += 1
+                else:
+                    err_info[job_info.PID] = dict()
+                    if job_info.Error:
+                        n_errs += 1
+                        err_info[job_info.PID]['info'] = job_info.ErrorInfo
+
+                    if job_info.Started:
+                        n_started += 1
+                        status_info[job_info.PID] = "Started but did not complete."
+                    else:
+                        err_info[job_info.PID] = "Never Started."
+                n_jobs += 1
+        ses.close()
+
+        out_info_dict = dict()
+        if n_jobs > 0:
+            out_info_dict['job_n'] = dict()
+            out_info_dict['job_n']['n_completed'] = n_completed
+            out_info_dict['job_n']['n_errs'] = n_errs
+            out_info_dict['job_n']['n_started'] = n_started
+            out_info_dict['job_n']['n_ended'] = n_ended
+            out_info_dict['job_n']['total_n_jobs'] = n_jobs
+
+            if len(job_times) > 0:
+                out_info_dict['job_times'] = dict()
+                out_info_dict['job_times'] = dict()
+                out_info_dict['job_times']['time_mean_secs'] = statistics.mean(job_times)
+                out_info_dict['job_times']['time_min_secs'] = min(job_times)
+                out_info_dict['job_times']['time_max_secs'] = max(job_times)
+                if len(job_times) > 1:
+                    out_info_dict['job_times']['time_stdev_secs'] = statistics.stdev(job_times)
+                out_info_dict['job_times']['download_time_median_secs'] = statistics.median(job_times)
+                if (len(job_times) > 1) and (pbprocesstools.py_sys_version_flt >= 3.8):
+                    out_info_dict['job_times']['time_quartiles_secs'] = statistics.quantiles(job_times)
+
+            out_info_dict["status"] = status_info
+            out_info_dict["xerrors"] = err_info
+
+        if out_report_file is None:
+            import pprint
+            pprint.pprint(out_info_dict)
+        else:
+            import json
+            with open(out_report_file, 'w') as fp:
+                json.dump(out_info_dict, fp, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
 
     def pop_params_db(self):
         """
@@ -657,6 +783,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         parser = argparse.ArgumentParser()
         parser.add_argument("--gen", action='store_true', default=False, help="Execute run_gen_commands() function.")
         parser.add_argument("--check", action='store_true', default=False, help="Execute run_check_outputs() function.")
+        parser.add_argument("--report", action='store_true', default=False, help="Execute create_jobs_report() function.")
+        parser.add_argument("-o", "--output", type=str, required=False, help="Specify a report output JSON file. If not provided then report written to console.")
         if argv is None:
             argv = sys.argv[1:]
         args = parser.parse_args(argv)
@@ -665,6 +793,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             self.run_gen_commands()
         elif args.check:
             self.run_check_outputs()
+        elif args.report:
+            self.create_jobs_report(args.output)
 
 
 
