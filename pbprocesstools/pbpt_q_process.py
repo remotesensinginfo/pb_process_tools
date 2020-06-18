@@ -52,6 +52,7 @@ from sqlite3 import Connection as SQLite3Connection
 
 from pbprocesstools.pbpt_utils import PBPTUtils
 from pbprocesstools.pbpt_process import PBPTProcessToolsBase
+from pbprocesstools import py_sys_version_flt
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         self.cmd_name = cmd_name
         self.descript = descript
         self.params = params
+        self.debug_job_id = None
         super().__init__(uid_len)
 
     def set_params(self, params):
@@ -310,10 +312,15 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
             parser.add_argument("-d", "--dbinfo", type=str,
                                 required=True, help="Specify a file path for a JSON file "
                                                     "containing the database info")
+            parser.add_argument("-j", "--job", type=int, required=False, help="Specify a job ID for the job to be "
+                                                                             "executed. This is a debug tool and "
+                                                                             "therefore the database will not be "
+                                                                             "updated and the job will be run "
+                                                                             "regardless of the database status.")
             if argv is None:
                 argv = sys.argv[1:]
             args = parser.parse_args(argv)
-
+            self.debug_job_id = args.job
             with open(args.dbinfo) as f:
                 self.queue_db_info = json.load(f)
             self.check_db_info()
@@ -339,64 +346,91 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         logger.debug("Starting to execute the 'std_run' function.")
         pbpt_utils = PBPTUtils()
         if self.parse_cmds(**kwargs):
-            sqlite_db_file = self.queue_db_info['sqlite_db_file']
-            sqlite_db_conn = self.queue_db_info['sqlite_db_conn']
-            logger.debug("Database connection info: '{}'.".format(sqlite_db_conn))
-            found_job = False
-            # Sleep for a random period of time to minimise clashes between multiple processes so they are offset.
-            time.sleep((random.random()*10))
-            n_failed_lck = 0
-            while True:
-                if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False):
-                    n_failed_lck = 0
-                    try:
-                        logger.debug("Creating Database Engine and Session.")
-                        db_engine = sqlalchemy.create_engine(sqlite_db_conn, pool_pre_ping=True)
-                        session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
-                        ses = session_sqlalc()
-                        logger.debug("Created Database Engine and Session.")
-
-                        logger.debug("Find the next scene to process.")
-                        job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Completed == False,
-                                                                    PBPTProcessJob.Started == False).order_by(
-                                                                    PBPTProcessJob.PID.asc()).first()
-                        if job_info is not None:
-                            found_job = True
-                            self.job_pid = job_info.PID
-                            self.params = job_info.JobParams
-                            job_info.Started = True
-                            job_info.Start = datetime.datetime.now()
-                            ses.commit()
-                            logger.debug("Found the next scene to process. PID: {}".format(self.job_pid))
-                        else:
-                            found_job = False
-                            logger.debug("No job found to process - finishing.")
-                        ses.close()
-                        logger.debug("Closed Database Engine and Session.")
-                    except Exception as e:
-                        logger.debug("Failed to create the database connection: '{}'".format(sqlite_db_conn))
-                        logger.exception(e)
-                        found_job = False
-                    pbpt_utils.release_file_lock(sqlite_db_file)
-                    if found_job:
-                        self.check_required_fields(**kwargs)
+            if self.debug_job_id is None:
+                sqlite_db_file = self.queue_db_info['sqlite_db_file']
+                sqlite_db_conn = self.queue_db_info['sqlite_db_conn']
+                logger.debug("Database connection info: '{}'.".format(sqlite_db_conn))
+                found_job = False
+                # Sleep for a random period of time to minimise clashes between multiple processes so they are offset.
+                time.sleep(random.randint(1,10))
+                n_failed_lck = 0
+                while True:
+                    if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180, use_except=False):
+                        n_failed_lck = 0
                         try:
-                            self.do_processing(**kwargs)
-                            self.completed_processing(**kwargs)
+                            logger.debug("Creating Database Engine and Session.")
+                            db_engine = sqlalchemy.create_engine(sqlite_db_conn, pool_pre_ping=True)
+                            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                            ses = session_sqlalc()
+                            logger.debug("Created Database Engine and Session.")
+
+                            logger.debug("Find the next scene to process.")
+                            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Completed == False,
+                                                                        PBPTProcessJob.Started == False).order_by(
+                                                                        PBPTProcessJob.PID.asc()).first()
+                            if job_info is not None:
+                                found_job = True
+                                self.job_pid = job_info.PID
+                                self.params = job_info.JobParams
+                                job_info.Started = True
+                                job_info.Start = datetime.datetime.now()
+                                ses.commit()
+                                logger.debug("Found the next scene to process. PID: {}".format(self.job_pid))
+                            else:
+                                found_job = False
+                                logger.debug("No job found to process - finishing.")
+                            ses.close()
+                            logger.debug("Closed Database Engine and Session.")
                         except Exception as e:
-                            import traceback
-                            err_dict = dict()
-                            err_dict['error'] = str(e)
-                            err_dict['traceback'] = traceback.format_exc()
-                            self.record_process_error(err_dict)
+                            logger.debug("Failed to create the database connection: '{}'".format(sqlite_db_conn))
+                            logger.exception(e)
+                            found_job = False
+                        pbpt_utils.release_file_lock(sqlite_db_file)
+                        if found_job:
+                            self.check_required_fields(**kwargs)
+                            try:
+                                self.do_processing(**kwargs)
+                                self.completed_processing(**kwargs)
+                            except Exception as e:
+                                import traceback
+                                err_dict = dict()
+                                err_dict['error'] = str(e)
+                                err_dict['traceback'] = traceback.format_exc()
+                                self.record_process_error(err_dict)
+                        else:
+                            break
                     else:
+                        n_failed_lck = n_failed_lck + 1
+
+                    if n_failed_lck > 5:
                         break
+            else:
+                sqlite_db_conn = self.queue_db_info['sqlite_db_conn']
+                try:
+                    logger.debug("Creating Database Engine and Session.")
+                    db_engine = sqlalchemy.create_engine(sqlite_db_conn, pool_pre_ping=True)
+                    session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                    ses = session_sqlalc()
+                    logger.debug("Created Database Engine and Session.")
+
+                    logger.debug("Searching the database for job ID: '{}'".format(self.debug_job_id))
+                    job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.debug_job_id).one_or_none()
+                    ses.close()
+                    logger.debug("Closed Database Engine and Session.")
+                except Exception as e:
+                    logger.debug("Failed to create the database connection: '{}'".format(sqlite_db_conn))
+                    logger.exception(e)
+
+                self.job_pid = self.debug_job_id
+                self.params = job_info.JobParams
+                if job_info is not None:
+                    logger.debug("Found the job to process, PID: {}".format(self.job_pid))
+                    self.check_required_fields(**kwargs)
+                    self.do_processing(**kwargs)
+
+                    logger.debug("Finished processing the job, PID: {}".format(self.job_pid))
                 else:
-                    n_failed_lck = n_failed_lck + 1
-
-                if n_failed_lck > 5:
-                    break
-
+                    logger.debug("No job (PID: {}) found to process - finishing.".format(self.job_pid))
 
 
 class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
@@ -576,7 +610,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                 if len(job_times) > 1:
                     out_info_dict['job_times']['time_stdev_secs'] = statistics.stdev(job_times)
                 out_info_dict['job_times']['download_time_median_secs'] = statistics.median(job_times)
-                if (len(job_times) > 1) and (pbprocesstools.py_sys_version_flt >= 3.8):
+                if (len(job_times) > 1) and (py_sys_version_flt >= 3.8):
                     out_info_dict['job_times']['time_quartiles_secs'] = statistics.quantiles(job_times)
 
             out_info_dict["status"] = status_info
