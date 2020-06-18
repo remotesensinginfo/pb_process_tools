@@ -33,12 +33,12 @@ $ python setup.py install
 # History:
 # Version 1.0 - Created.
 
-from distutils.core import setup
+import setuptools
 import os
 
-setup(name='pb_process_tools',
+setuptools.setup(name='pb_process_tools',
     version='1.2.1',
-    description='Tools for batch processing data, including with HPC with slurm.',
+    description='Tools for batch processing data, including on HPC cluster with slurm.',
     author='Pete Bunting',
     author_email='petebunting@mac.com',
     scripts=['bin/genslurmsub.py', 'bin/subcmdslurm.py', 'bin/splitcmdslist.py', 'bin/prefixcmdslst.py'],
@@ -52,7 +52,6 @@ setup(name='pb_process_tools',
     install_requires=['jinja2', 'sqlalchemy', 'tqdm'],
     url='https://bitbucket.org/petebunting/pb_process_tools',
     classifiers=['Intended Audience :: Developers',
-    	  'Intended Audience :: HPC Users',
           'Operating System :: OS Independent',
           'Programming Language :: Python :: 3',
           'Programming Language :: Python :: 3.2',
