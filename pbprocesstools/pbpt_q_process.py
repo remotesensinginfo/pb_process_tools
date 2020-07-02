@@ -587,8 +587,6 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                     if job_info.Started:
                         n_started += 1
                         status_info[job_info.PID] = "Started but did not complete."
-                    else:
-                        err_info[job_info.PID] = "Never Started."
                 n_jobs += 1
         ses.close()
 

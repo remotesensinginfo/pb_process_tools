@@ -104,6 +104,25 @@ class PBPTProcessToolsBase(ABC):
             return None
         return files[0]
 
+    def find_first_file(self, dirPath, fileSearch):
+        """
+        Search for a single file with a path using glob. Therefore, the file
+        path returned is a true path. Within the fileSearch provide the file
+        name with '*' as wildcard(s).
+        :param dirPath:
+        :param fileSearch:
+        :return:
+        """
+        import glob
+        for root, dirs, files in os.walk(dirPath):
+            files = glob.glob(os.path.join(root, fileSearch))
+            if len(files) > 0:
+                break
+
+        if len(files) != 1:
+            raise Exception("Could not find a single file ({0}) in {1}; found {2} files.".format(fileSearch, dirPath, len(files)))
+        return files[0]
+
     def get_file_basename(self, filepath, checkvalid=False, n_comps=0):
         """
         Uses os.path module to return file basename (i.e., path and extension removed)
