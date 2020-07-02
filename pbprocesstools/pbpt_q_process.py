@@ -607,7 +607,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                 out_info_dict['job_times']['time_max_secs'] = max(job_times)
                 if len(job_times) > 1:
                     out_info_dict['job_times']['time_stdev_secs'] = statistics.stdev(job_times)
-                out_info_dict['job_times']['download_time_median_secs'] = statistics.median(job_times)
+                out_info_dict['job_times']['time_median_secs'] = statistics.median(job_times)
                 if (len(job_times) > 1) and (py_sys_version_flt >= 3.8):
                     out_info_dict['job_times']['time_quartiles_secs'] = statistics.quantiles(job_times)
 
