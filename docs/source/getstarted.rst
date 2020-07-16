@@ -48,6 +48,9 @@ This python script has been saved in a file called ``perform_processing.py``::
 
         def outputs_present(self, **kwargs):
             return True, dict()
+        
+        def remove_outputs(self, **kwargs):
+            print("No outputs to remove")
 
     if __name__ == "__main__":
         ProcessJob().std_run()
@@ -58,6 +61,7 @@ This class is a very simple class and performs very little work, just logging a 
     * ``do_processing`` - the function which performs the analysis
     * ``required_fields`` - returns a list of the required input fields within the params dict.
     * ``outputs_present`` - performs a test (if possible) to check whether the processing of the job has successfully completed. In this case, it just returns True as there are no outputs to check.
+    * ``remove_outputs`` - removes job outputs. This is usually used to reset a job which for some reason failed during processing.
 
 The second class which needs implementing generates the jobs (i.e., the inputs to the class above):
 
@@ -92,6 +96,11 @@ This python script has been saved in a file called ``gen_process_cmds.py``::
             out_err_file = 'processing_errs_{}.txt'.format(time_sample_str)
             out_non_comp_file = 'non_complete_errs_{}.txt'.format(time_sample_str)
             self.check_job_outputs(process_tools_mod, process_tools_cls, out_err_file, out_non_comp_file)
+        
+        def run_remove_outputs(self, all_jobs=False, error_jobs=False):
+            process_tools_mod = 'perform_processing'
+            process_tools_cls = 'ProcessJob'
+            self.remove_job_outputs(process_tools_mod, process_tools_cls, all_jobs, error_jobs)
 
 
     if __name__ == "__main__":
@@ -130,12 +139,27 @@ If you want the report outputted to a file run::
 
     python gen_process_cmds.py --check -o report.json
 
+To remove outputs where an error occurred then you can use the following:
+    
+    python gen_process_cmds.py --rmouts --error
+    
+To remove outputs for all jobs then you can use the following:
+    
+    python gen_process_cmds.py --rmouts --all
+
 Where you have had an error occur it can be useful to run a single task in isolation without the database recording any information and any exception being returned to the console rather than captured. This can be performed by calling the processing python file. For example, to process job 20, run the following command::
 
     python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20
 
 Where the ``--dbinfo`` input will have been generated and provides the database location and connection information. You're file name will be similar but with a different random set of characters at the end.
 
+You can remove the outputs for just one job using the following command:
+
+    python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20 -r
+
+You can also print the parameters for a job as well:
+
+    python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20 -p
 
 
 
