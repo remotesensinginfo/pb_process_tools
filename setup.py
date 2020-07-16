@@ -37,7 +37,7 @@ import setuptools
 import os
 
 setuptools.setup(name='pb_process_tools',
-    version='1.2.4',
+    version='1.3.0',
     description='Tools for batch processing data, including on HPC cluster with slurm.',
     author='Pete Bunting',
     author_email='petebunting@mac.com',
