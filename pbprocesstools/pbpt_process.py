@@ -108,11 +108,12 @@ class PBPTProcessToolsBase(ABC):
         Search for a single file with a path using glob. Therefore, the file
         path returned is a true path. Within the fileSearch provide the file
         name with '*' as wildcard(s).
+
         :param dirPath: The directory within which to search, note that the search will be within
                         sub-directories within the base directory until a file meeting the search
                         criteria are met.
         :param fileSearch: The file search string in the file name and must contain a wild character (i.e., *).
-        :param rtn_except: if True then an exception will be raised if no file or multiple files are found (default).
+        :param rtn_except: If True then an exception will be raised if no file or multiple files are found (default).
                            If False then None will be returned rather than an exception raised.
         :return: The file found (or None if rtn_except=False)
 

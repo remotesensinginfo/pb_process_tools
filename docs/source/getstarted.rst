@@ -139,11 +139,11 @@ If you want the report outputted to a file run::
 
     python gen_process_cmds.py --check -o report.json
 
-To remove outputs where an error occurred then you can use the following:
+To remove outputs where an error occurred then you can use the following::
     
     python gen_process_cmds.py --rmouts --error
     
-To remove outputs for all jobs then you can use the following:
+To remove outputs for all jobs then you can use the following::
     
     python gen_process_cmds.py --rmouts --all
 
@@ -153,11 +153,11 @@ Where you have had an error occur it can be useful to run a single task in isola
 
 Where the ``--dbinfo`` input will have been generated and provides the database location and connection information. You're file name will be similar but with a different random set of characters at the end.
 
-You can remove the outputs for just one job using the following command:
+You can remove the outputs for just one job using the following command::
 
     python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20 -r
 
-You can also print the parameters for a job as well:
+You can also print the parameters for a job as well::
 
     python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20 -p
 
