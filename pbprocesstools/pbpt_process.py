@@ -73,7 +73,6 @@ class PBPTProcessToolsBase(ABC):
         now_time = datetime.now()
         return now_time.strftime("%Y%m%d_%H%M%S")
 
-
     def find_file(self, dir_path, file_search):
         """
         Search for a single file with a path using glob. Therefore, the file
@@ -309,6 +308,7 @@ class PBPTProcessToolsBase(ABC):
          * gdal_image
          * gdal_vector
          * hdf5
+         * file - just does a check whether the file is present.
 
         :param files_dict: dict with the structure key: filepath, value:format
 
@@ -340,6 +340,13 @@ class PBPTProcessToolsBase(ABC):
                     if not file_ok:
                         files_present = False
                         errs_dict[filepath] = err_str
+                elif files_dict[filepath].lower() == 'filesize':
+                    file_ok = False
+                    err_str = ""
+                    file_size = os.stat(filepath).st_size
+                    if not (file_size > 0):
+                        files_present = False
+                        errs_dict[filepath] = "File does not have a file size > 0."
                 # Else: just ignore, no test being undertaken - i.e., being present is enough...
         return files_present, errs_dict
 
@@ -511,6 +518,7 @@ class PBPTProcessTool(PBPTProcessToolsBase):
         if self.parse_cmds(**kwargs):
             self.do_processing(**kwargs)
             self.completed_processing(**kwargs)
+
 
 class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
 
@@ -857,3 +865,4 @@ class PBPTGenProcessToolCmds(PBPTProcessToolsBase):
             self.run_gen_commands()
         elif args.check:
             self.run_check_outputs()
+
