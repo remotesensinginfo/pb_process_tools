@@ -75,8 +75,8 @@ class PBPTProcessJob(Base):
 def set_sqlite_pragma(dbapi_connection, connection_record):
     if isinstance(dbapi_connection, SQLite3Connection):
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode = MEMORY")
-        cursor.execute("PRAGMA synchronous = OFF")
+        cursor.execute("PRAGMA journal_mode = TRUNCATE")#MEMORY
+        cursor.execute("PRAGMA synchronous = ON")#OFF
         cursor.execute("PRAGMA temp_store = MEMORY")
         cursor.execute("PRAGMA cache_size = 500000")
         cursor.close()
