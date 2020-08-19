@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 class PBPTUtils(object):
 
-    def get_file_lock(self, input_file, sleep_period=1, wait_iters=120, use_except=False):
+    def get_file_lock(self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600):
         """
         A function which gets a lock on a file.
 
@@ -60,6 +60,7 @@ class PBPTUtils(object):
                            available. If False (default) False will be returned if the lock is
                            not successful.
         :return: boolean. True: lock was successfully gained. False: lock was not gained.
+        :param timeout: the time (in seconds) for the lock file timeout. Default: 3600 (1 hours).
 
         """
         file_path, file_name = os.path.split(input_file)
@@ -80,7 +81,10 @@ class PBPTUtils(object):
             f.flush()
             f.close()
         elif use_except:
+            self.clean_file_locks(file_path, timeout)
             raise Exception("Lock could not be gained for file: {}".format(input_file))
+        else:
+            self.clean_file_locks(file_path, timeout)
 
         return got_lock
 
