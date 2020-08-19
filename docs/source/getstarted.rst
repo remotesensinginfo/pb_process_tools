@@ -48,7 +48,7 @@ This python script has been saved in a file called ``perform_processing.py``::
 
         def outputs_present(self, **kwargs):
             return True, dict()
-        
+
         def remove_outputs(self, **kwargs):
             print("No outputs to remove")
 
@@ -88,30 +88,19 @@ This python script has been saved in a file called ``gen_process_cmds.py``::
             self.pop_params_db()
             self.create_shell_exe("exe_analysis.sh", "cmds.sh", 4, db_info_file=None)
 
-
-        def run_check_outputs(self):
-            process_tools_mod = 'perform_processing'
-            process_tools_cls = 'ProcessJob'
-            time_sample_str = self.generate_readable_timestamp_str()
-            out_err_file = 'processing_errs_{}.txt'.format(time_sample_str)
-            out_non_comp_file = 'non_complete_errs_{}.txt'.format(time_sample_str)
-            self.check_job_outputs(process_tools_mod, process_tools_cls, out_err_file, out_non_comp_file)
-        
-        def run_remove_outputs(self, all_jobs=False, error_jobs=False):
-            process_tools_mod = 'perform_processing'
-            process_tools_cls = 'ProcessJob'
-            self.remove_job_outputs(process_tools_mod, process_tools_cls, all_jobs, error_jobs)
-
-
     if __name__ == "__main__":
         py_script = os.path.abspath("perform_processing.py")
         script_cmd = "python {}".format(py_script)
 
-        create_tools = CreateTestCmds(cmd=script_cmd, sqlite_db_file="test_jobs.db")
+        process_tools_mod = 'perform_processing'
+        process_tools_cls = 'ProcessJob'
+
+        create_tools = CreateTestCmds(cmd=script_cmd, sqlite_db_file="test_jobs.db",
+                                      process_tools_mod=process_tools_mod, process_tools_cls=process_tools_cls)
         create_tools.parse_cmds()
 
 
-This class generates the individual job parameters, in this case 100 jobs. The dict for each job has to be appended to the ``self.params`` list within the ``gen_command_info`` function. The ``run_gen_commands`` function needs to call the ``gen_command_info`` function but also specifies the output format (i.e., batch processing using GNU parallel on a local system or via slurm on a cluster). In this case it is via a GNU parallel and a shell script listing the commands. The ``run_check_outputs`` function is specifying the ``PBPTQProcessTool`` class name and module so it can be imported to check for job completion. Also the output files for the checking reports are specified. It is often useful to put a timestamp into the file name so files are not overwritten each time the outputs are checked.
+This class generates the individual job parameters, in this case 100 jobs. The dict for each job has to be appended to the ``self.params`` list within the ``gen_command_info`` function. The ``run_gen_commands`` function needs to call the ``gen_command_info`` function but also specifies the output format (i.e., batch processing using GNU parallel on a local system or via slurm on a cluster). In this case it is via a GNU parallel and a shell script listing the commands.
 
 When the class ``CreateTestCmds`` is instantiated, the command to be executed for processing to occur (i.e., ``python perform_processing.py``) needs to be specified and the database file name and path is required.
 
@@ -140,11 +129,11 @@ If you want the report outputted to a file run::
     python gen_process_cmds.py --check -o report.json
 
 To remove outputs where an error occurred then you can use the following::
-    
+
     python gen_process_cmds.py --rmouts --error
     
 To remove outputs for all jobs then you can use the following::
-    
+
     python gen_process_cmds.py --rmouts --all
 
 Where you have had an error occur it can be useful to run a single task in isolation without the database recording any information and any exception being returned to the console rather than captured. This can be performed by calling the processing python file. For example, to process job 20, run the following command::
