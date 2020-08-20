@@ -289,6 +289,18 @@ class PBPTUtils(object):
             p = c
         return out_str
 
+    def uidGenerator(self, size=6):
+        """
+        A function which will generate a 'random' string of the specified length based on the UUID
+
+        :param size: the length of the returned string.
+        :return: string of length size.
+
+        """
+        import uuid
+        randomStr = str(uuid.uuid4())
+        randomStr = randomStr.replace("-","")
+        return randomStr[0:size]
 
 
 class PBPTTextFileUtils(object):

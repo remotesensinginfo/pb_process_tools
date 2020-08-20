@@ -94,7 +94,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         """
         A class to implement a processing tool for batch processing data analysis using a queue.
 
-        :param queue_db_info: The database dict info. Require fields: sqlite_db_conn, sqlite_db_file
+        :param queue_db_info: The database dict info. Require fields: db_conn_str, sqlite_db_file
         :param cmd_name: optionally provide the name of the command (i.e., the python script name).
         :param descript: optionally provide a description of the command file.
         :param params: optionally provide a dict which will be the options for the processing to execute
@@ -126,7 +126,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         """
         Set the queue database info.
 
-        :param queue_db_info: The database dict info. Require fields: sqlite_db_conn, sqlite_db_file
+        :param queue_db_info: The database dict info. Require fields: db_conn_str, sqlite_db_file
 
         """
         self.queue_db_info = queue_db_info
@@ -137,24 +137,29 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         works.
 
         """
-        if 'sqlite_db_conn' not in self.queue_db_info:
-            raise Exception("sqlite_db_conn key has is not present.")
+        if 'db_conn_str' not in self.queue_db_info:
+            raise Exception("db_conn_str key has is not present.")
 
-        if 'sqlite_db_file' not in self.queue_db_info:
-            raise Exception("sqlite_db_file key has is not present.")
+        if 'lck_file' not in self.queue_db_info:
+            raise Exception("lck_file key has is not present.")
 
-        if not os.path.exists(self.queue_db_info['sqlite_db_file']):
-            raise Exception("The SQLite database file does not exist: '{}'".format(self.queue_db_info['sqlite_db_file']))
+        self.use_sqlite = False
+        if 'sqlite_db_file' in self.queue_db_info:
+            self.use_sqlite = True
+
+        if self.use_sqlite and (not os.path.exists(self.queue_db_info['sqlite_db_file'])):
+            raise Exception("The SQLite database file does "
+                            "not exist: '{}'".format(self.queue_db_info['sqlite_db_file']))
 
         try:
             logger.debug("Creating Database Engine and Session.")
-            db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'], pool_pre_ping=True)
+            db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
             session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
             ses = session_sqlalc()
             ses.close()
             logger.debug("Created Database Engine and Session.")
         except:
-            raise Exception("The SQLite database file cannot be opened: '{}'".format(self.queue_db_info['sqlite_db']))
+            raise Exception("The database could not be connected to: '{}'".format(self.queue_db_info['db_conn_str']))
 
         return True
 
@@ -178,19 +183,41 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                        (e.q., obj.completed_processing(option_a=True, option_b=100)).
 
         """
-        logger.debug("Creating Database Engine and Session.")
-        db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'], pool_pre_ping=True)
-        session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
-        ses = session_sqlalc()
-        logger.debug("Created Database Engine and Session.")
+        if self.use_sqlite:
+            pbpt_utils = PBPTUtils()
+            if pbpt_utils.get_file_lock(self.queue_db_info['lck_file'], sleep_period=1,
+                                        wait_iters=180, use_except=False, timeout=300):
+                try:
+                    logger.debug("Creating Database Engine and Session.")
+                    db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+                    session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                    ses = session_sqlalc()
+                    logger.debug("Created Database Engine and Session.")
 
-        job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
-        if job_info is not None:
-            job_info.Completed = True
-            job_info.Error = False
-            job_info.End = datetime.datetime.now()
-            ses.commit()
-        ses.close()
+                    job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+                    if job_info is not None:
+                        job_info.Completed = True
+                        job_info.Error = False
+                        job_info.End = datetime.datetime.now()
+                        ses.commit()
+                    ses.close()
+                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+                except:
+                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+        else:
+            logger.debug("Creating Database Engine and Session.")
+            db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+            ses = session_sqlalc()
+            logger.debug("Created Database Engine and Session.")
+
+            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+            if job_info is not None:
+                job_info.Completed = True
+                job_info.Error = False
+                job_info.End = datetime.datetime.now()
+                ses.commit()
+            ses.close()
 
     def record_process_error(self, err_info, **kwargs):
         """
@@ -202,21 +229,45 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                        (e.q., obj.completed_processing(option_a=True, option_b=100)).
 
         """
-        logger.debug("Creating Database Engine and Session.")
-        db_engine = sqlalchemy.create_engine(self.queue_db_info['sqlite_db_conn'], pool_pre_ping=True)
-        session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
-        ses = session_sqlalc()
-        logger.debug("Created Database Engine and Session.")
+        if self.use_sqlite:
+            pbpt_utils = PBPTUtils()
+            if pbpt_utils.get_file_lock(self.queue_db_info['lck_file'], sleep_period=1,
+                                        wait_iters=180, use_except=False, timeout=300):
+                try:
+                    logger.debug("Creating Database Engine and Session.")
+                    db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+                    session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+                    ses = session_sqlalc()
+                    logger.debug("Created Database Engine and Session.")
 
-        job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
-        if job_info is not None:
-            job_info.Completed = False
-            job_info.Error = True
-            job_info.ErrorInfo = err_info
-            job_info.End = None
-            flag_modified(job_info, "ErrorInfo")
-            ses.commit()
-        ses.close()
+                    job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+                    if job_info is not None:
+                        job_info.Completed = False
+                        job_info.Error = True
+                        job_info.ErrorInfo = err_info
+                        job_info.End = None
+                        flag_modified(job_info, "ErrorInfo")
+                        ses.commit()
+                    ses.close()
+                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+                except:
+                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+        else:
+            logger.debug("Creating Database Engine and Session.")
+            db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+            session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
+            ses = session_sqlalc()
+            logger.debug("Created Database Engine and Session.")
+
+            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+            if job_info is not None:
+                job_info.Completed = False
+                job_info.Error = True
+                job_info.ErrorInfo = err_info
+                job_info.End = None
+                flag_modified(job_info, "ErrorInfo")
+                ses.commit()
+            ses.close()
 
     @abstractmethod
     def required_fields(self, **kwargs):
@@ -355,21 +406,21 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         pbpt_utils = PBPTUtils()
         if self.parse_cmds(**kwargs):
             if self.debug_job_id is None:
-                sqlite_db_file = self.queue_db_info['sqlite_db_file']
-                sqlite_db_dir, sqlite_db_filename = os.path.split(sqlite_db_file)
-                sqlite_db_conn = self.queue_db_info['sqlite_db_conn']
-                logger.debug("Database connection info: '{}'.".format(sqlite_db_conn))
+                lck_file_path = self.queue_db_info['lck_file']
+                lck_file_dir, lck_file_filename = os.path.split(lck_file_path)
+                db_conn_str = self.queue_db_info['db_conn_str']
+                logger.debug("Database connection info: '{}'.".format(db_conn_str))
                 found_job = False
                 # Sleep for a random period of time to minimise clashes between multiple processes so they are offset.
                 time.sleep(random.randint(1,10))
                 n_failed_lck = 0
                 while True:
-                    if pbpt_utils.get_file_lock(sqlite_db_file, sleep_period=1, wait_iters=180,
+                    if pbpt_utils.get_file_lock(lck_file_path, sleep_period=1, wait_iters=180,
                                                 use_except=False, timeout=300):
                         n_failed_lck = 0
                         try:
                             logger.debug("Creating Database Engine and Session.")
-                            db_engine = sqlalchemy.create_engine(sqlite_db_conn, pool_pre_ping=True)
+                            db_engine = sqlalchemy.create_engine(db_conn_str, pool_pre_ping=True)
                             session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
                             ses = session_sqlalc()
                             logger.debug("Created Database Engine and Session.")
@@ -392,10 +443,10 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                             ses.close()
                             logger.debug("Closed Database Engine and Session.")
                         except Exception as e:
-                            logger.debug("Failed to create the database connection: '{}'".format(sqlite_db_conn))
+                            logger.debug("Failed to create the database connection: '{}'".format(db_conn_str))
                             logger.exception(e)
                             found_job = False
-                        pbpt_utils.release_file_lock(sqlite_db_file, timeout=300)
+                        pbpt_utils.release_file_lock(lck_file_path, timeout=300)
                         if found_job:
                             self.check_required_fields(**kwargs)
                             try:
@@ -411,16 +462,16 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                             break
                     else:
                         n_failed_lck = n_failed_lck + 1
-                        pbpt_utils.clean_file_locks(sqlite_db_dir, timeout=300)
+                        pbpt_utils.clean_file_locks(lck_file_dir, timeout=300)
 
                     if n_failed_lck > 10:
-                        pbpt_utils.clean_file_locks(sqlite_db_dir, timeout=300)
+                        pbpt_utils.clean_file_locks(lck_file_dir, timeout=300)
                         break
             else:
-                sqlite_db_conn = self.queue_db_info['sqlite_db_conn']
+                db_conn_str = self.queue_db_info['db_conn_str']
                 try:
                     logger.debug("Creating Database Engine and Session.")
-                    db_engine = sqlalchemy.create_engine(sqlite_db_conn, pool_pre_ping=True)
+                    db_engine = sqlalchemy.create_engine(db_conn_str, pool_pre_ping=True)
                     session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
                     ses = session_sqlalc()
                     logger.debug("Created Database Engine and Session.")
@@ -430,7 +481,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                     ses.close()
                     logger.debug("Closed Database Engine and Session.")
                 except Exception as e:
-                    logger.debug("Failed to create the database connection: '{}'".format(sqlite_db_conn))
+                    logger.debug("Failed to create the database connection: '{}'".format(db_conn_str))
                     logger.exception(e)
 
                 self.job_pid = self.debug_job_id
@@ -454,29 +505,55 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
 
 class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
-    def __init__(self, cmd, sqlite_db_file, uid_len=6, process_tools_path=None,
-                 process_tools_mod=None, process_tools_cls=None):
+    def __init__(self, cmd, sqlite_db_file=None, db_conn_file=None, lock_file_path=None, uid_len=6,
+                 process_tools_path=None, process_tools_mod=None, process_tools_cls=None):
         """
         A class to implement a the generation of commands for batch processing data analysis.
 
         :param cmd: the command to be executed (e.g., python run_analysis.py).
-        :param queue_db_info: The database dict info. Require fields: sqlite_db_conn, sqlite_db_file
-        x:param process_tools_path: The path (if not already in path; i.e., same directory) to find the
+        :param sqlite_db_file:
+        :param db_conn_file:
+        :param lock_file_path:
+        :param uid_len:
+        :param process_tools_path: The path (if not already in path; i.e., same directory) to find the
                                    PBPTQProcessTool implementation used within this class
         :param process_tools_mod: The module name (i.e., python file name 'xxxx.py' containing the PBPTQProcessTool
                                   implementation.
         :param process_tools_cls: The name of the class implementing PBPTQProcessTool.
 
         """
+        super().__init__(uid_len)
+
+        pbpt_utils = PBPTUtils()
         self.params = []
         self.cmd = cmd
-        self.sqlite_db_file = os.path.abspath(sqlite_db_file)
-        self.sqlite_db_conn = "sqlite:///{}".format(self.sqlite_db_file)
+        self.use_sqlite = True
+        if sqlite_db_file is not None:
+            self.sqlite_db_file = os.path.abspath(sqlite_db_file)
+            self.db_conn_str = "sqlite:///{}".format(self.sqlite_db_file)
+            if lock_file_path is None:
+                self.lock_file_path = self.sqlite_db_file
+            else:
+                self.lock_file_path = os.path.abspath(lock_file_path)
+                if not os.path.exists(self.lock_file_path):
+                    pathlib.Path(self.lock_file_path).touch()
+            self.use_sqlite = True
+        elif db_conn_file is not None:
+            self.use_sqlite = False
+            self.sqlite_db_file = None
+            self.db_conn_str = pbpt_utils.readTextFileNoNewLines(db_conn_file)
+            if lock_file_path is None:
+                self.lock_file_path = "pbpt_tmp_lock_file_{}.txt".format(self.uid)
+            else:
+                self.lock_file_path = os.path.abspath(lock_file_path)
+            if not os.path.exists(self.lock_file_path):
+                pathlib.Path(self.lock_file_path).touch()
+        else:
+            raise Exception("A database was not specified and is required.")
+
         self.process_tools_path = process_tools_path
         self.process_tools_mod = process_tools_mod
         self.process_tools_cls = process_tools_cls
-
-        super().__init__(uid_len)
 
     @abstractmethod
     def gen_command_info(self, **kwargs):
@@ -520,7 +597,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
         queue_db_info = dict()
         queue_db_info['sqlite_db_file'] = self.sqlite_db_file
-        queue_db_info['sqlite_db_conn'] = self.sqlite_db_conn
+        queue_db_info['db_conn_str'] = self.db_conn_str
 
         if process_tools_path is None:
             process_tools_path = self.process_tools_path
@@ -552,7 +629,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         err_info = dict()
 
         logger.debug("Creating Database Engine and Session.")
-        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn, pool_pre_ping=True)
+        db_engine = sqlalchemy.create_engine(self.db_conn_str, pool_pre_ping=True)
         session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
         ses = session_sqlalc()
         logger.debug("Created Database Engine and Session.")
@@ -615,8 +692,10 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             raise Exception("Must specify for either all or only error jobs to have the outputs removed.")
 
         queue_db_info = dict()
-        queue_db_info['sqlite_db_file'] = self.sqlite_db_file
-        queue_db_info['sqlite_db_conn'] = self.sqlite_db_conn
+        queue_db_info["db_conn_str"] = self.db_conn_str
+        if self.sqlite_db_file is not None:
+            queue_db_info["sqlite_db_file"] = self.sqlite_db_file
+        queue_db_info["lck_file"] = self.lock_file_path
 
         if process_tools_path is None:
             process_tools_path = self.process_tools_path
@@ -644,7 +723,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         process_tools_cls_inst.set_queue_db_info(queue_db_info)
 
         logger.debug("Creating Database Engine and Session.")
-        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn, pool_pre_ping=True)
+        db_engine = sqlalchemy.create_engine(self.db_conn_str, pool_pre_ping=True)
         session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
         ses = session_sqlalc()
         logger.debug("Created Database Engine and Session.")
@@ -675,7 +754,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         import statistics
 
         logger.debug("Creating Database Engine and Session.")
-        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn, pool_pre_ping=True)
+        db_engine = sqlalchemy.create_engine(self.db_conn_str, pool_pre_ping=True)
         session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
         ses = session_sqlalc()
         logger.debug("Created Database Engine and Session.")
@@ -746,10 +825,11 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                     (e.g., python run_analysis.py).
 
         """
-        if os.path.exists(self.sqlite_db_file):
+        if self.use_sqlite and os.path.exists(self.sqlite_db_file):
             os.remove(self.sqlite_db_file)
+
         logger.debug("Creating Database Engine.")
-        db_engine = sqlalchemy.create_engine(self.sqlite_db_conn, pool_pre_ping=True)
+        db_engine = sqlalchemy.create_engine(self.db_conn_str, pool_pre_ping=True)
         logger.debug("Drop system table if within the existing database.")
         Base.metadata.drop_all(db_engine)
         logger.debug("Creating Database.")
@@ -761,17 +841,16 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         ses = session_sqlalc()
         logger.debug("Created Database Engine and Session.")
 
+        logger.info("Create list of DB records.")
         job_lst = []
-        pbar = tqdm.tqdm(total=len(self.params))
         for i, param in enumerate(self.params):
             job_lst.append(PBPTProcessJob(PID=i, JobParams=param))
-            pbar.update(1)
 
-        logger.debug("There are {} jobs to be written to the database.".format(len(job_lst)))
+        logger.info("There are {} jobs to be written to the database.".format(len(job_lst)))
         if len(job_lst) > 0:
             ses.add_all(job_lst)
             ses.commit()
-            logger.debug("Written jobs to the database.")
+        logger.info("Written jobs to the database.")
         ses.close()
 
     def create_shell_exe(self, run_script, cmds_sh_file, n_cores, db_info_file=None):
@@ -790,20 +869,20 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                              automatically.
 
         """
+        logger.info("Create database info file.")
         pbpt_utils = PBPTUtils()
         if db_info_file is None:
-            uid_str = self.uid_generator(8)
-            db_info_file = "process_db_info_{}.json".format(uid_str)
+            db_info_file = "process_db_info_{}.json".format(self.uid)
             db_info_file = os.path.abspath(db_info_file)
-            if os.path.exists(db_info_file):
-                raise Exception("Strange, the automatically generated database info file ({}) "
-                                "already exists - try re-running.".format(db_info_file))
 
         db_info = dict()
-        db_info["sqlite_db_conn"] = self.sqlite_db_conn
-        db_info["sqlite_db_file"] = self.sqlite_db_file
+        db_info["db_conn_str"] = self.db_conn_str
+        if self.use_sqlite and (self.sqlite_db_file is not None):
+            db_info["sqlite_db_file"] = self.sqlite_db_file
+        db_info["lck_file"] = self.lock_file_path
         pbpt_utils.writeDict2JSON(db_info, db_info_file)
 
+        logger.info("Create commands shell scripts.")
         lst_cmds = []
         for n in range(n_cores):
             lst_cmds.append("{0} --dbinfo {1}".format(self.cmd, db_info_file))
@@ -812,6 +891,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         # Create the run script with GNU parallel.
         parallel_cmd = "parallel -j {} < {}".format(n_cores, cmds_sh_file)
         pbpt_utils.writeData2File(parallel_cmd, run_script)
+        logger.info("Finished creating shell scripts.")
 
     def create_slurm_sub_sh(self, jobname, mem_per_core_mb, log_dir, run_script='run_exe_analysis.sh',
                             job_dir="job_scripts", db_info_file=None, account_name=None, n_cores_per_job=10,
@@ -834,20 +914,20 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         :param module_load: Module loads within the sbatch submission scripts. If None them ignored.
 
         """
+        logger.info("Create database info file.")
         pbpt_utils = PBPTUtils()
         if db_info_file is None:
-            uid_str = self.uid_generator(8)
-            db_info_file = "process_db_info_{}.json".format(uid_str)
+            db_info_file = "process_db_info_{}.json".format(self.uid)
             db_info_file = os.path.abspath(db_info_file)
-            if os.path.exists(db_info_file):
-                raise Exception("Strange, the automatically generated database info file ({}) "
-                                "already exists - try re-running.".format(db_info_file))
 
         db_info = dict()
-        db_info["sqlite_db_conn"] = self.sqlite_db_conn
-        db_info["sqlite_db_file"] = self.sqlite_db_file
+        db_info["db_conn_str"] = self.db_conn_str
+        if self.use_sqlite and (self.sqlite_db_file is not None):
+            db_info["sqlite_db_file"] = self.sqlite_db_file
+        db_info["lck_file"] = self.lock_file_path
         pbpt_utils.writeDict2JSON(db_info, db_info_file)
 
+        logger.info("Create commands slurm scripts.")
         job_dir = os.path.abspath(job_dir)
         if not os.path.exists(job_dir):
             os.mkdir(job_dir)
@@ -889,6 +969,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                 sbatch_cmds.append("sbatch {}".format(sbatch_file))
 
         pbpt_utils.writeList2File(sbatch_cmds, run_script)
+        logger.info("Finished creating slurm scripts.")
 
     @abstractmethod
     def run_gen_commands(self):
