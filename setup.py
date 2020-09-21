@@ -37,7 +37,7 @@ import setuptools
 import os
 
 setuptools.setup(name='pb_process_tools',
-    version='2.0.0',
+    version='2.0.1',
     description='Tools for batch processing data, including on HPC cluster with slurm.',
     author='Pete Bunting',
     author_email='petebunting@mac.com',
@@ -50,7 +50,7 @@ setuptools.setup(name='pb_process_tools',
                 [os.path.join('share','loggingconfig.json')])],
     license='LICENSE.txt',
     install_requires=['jinja2', 'sqlalchemy', 'tqdm'],
-    url='https://bitbucket.org/petebunting/pb_process_tools',
+    url='https://github.com/remotesensinginfo/pb_process_tools',
     classifiers=['Intended Audience :: Developers',
           'Operating System :: OS Independent',
           'Programming Language :: Python :: 3',

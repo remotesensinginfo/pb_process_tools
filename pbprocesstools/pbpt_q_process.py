@@ -895,7 +895,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
     def create_slurm_sub_sh(self, jobname, mem_per_core_mb, log_dir, run_script='run_exe_analysis.sh',
                             job_dir="job_scripts", db_info_file=None, account_name=None, n_cores_per_job=10,
-                            n_jobs=10, job_time_limit='2-23:59', module_load='module load parallel singularity'):
+                            n_xtr_cmds=0, n_jobs=10, job_time_limit='2-23:59',
+                            module_load='module load parallel singularity'):
         """
         A function which generates the scripts needed to run an analysis using slurm.
 
@@ -909,6 +910,9 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                              automatically.
         :param account_name: The slurm account name for the jobs to be submitted under.
         :param n_cores_per_job: the number of cores per job
+        :param n_xtr_cmds: the number of extra commands added to the list of commands which are executed using
+                           GNU parallel. This is basically the number of extra commands to fill any which
+                           fail during processing. Default: 0.
         :param n_jobs: the number of jobs to split the input list of commands into.
         :param job_time_limit: The time limit for the job: Days-HH:MM e.g., 2-23:59; 2 days, 23 hours and 59 minutes.
         :param module_load: Module loads within the sbatch submission scripts. If None them ignored.
@@ -933,7 +937,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             os.mkdir(job_dir)
 
         lst_cmds = []
-        for n in range(n_cores_per_job):
+        for n in range(n_cores_per_job + n_xtr_cmds):
             lst_cmds.append("{0} --dbinfo {1}".format(self.cmd, db_info_file))
         cmds_sh_file = os.path.join(job_dir, "jobcmds.sh")
         pbpt_utils.writeList2File(lst_cmds, cmds_sh_file)
