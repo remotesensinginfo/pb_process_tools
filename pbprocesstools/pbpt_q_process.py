@@ -740,6 +740,11 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             for job_info in tqdm.tqdm(jobs):
                 process_tools_cls_inst.set_params(job_info.JobParams)
                 process_tools_cls_inst.remove_outputs(**kwargs)
+                job_info.Started = False
+                job_info.Error = False
+                job_info.Completed = False
+                job_info.Checked = False
+                ses.commit()
         ses.close()
 
     def create_jobs_report(self, out_report_file=None):
