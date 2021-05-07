@@ -209,11 +209,13 @@ class PBPTProcessToolsBase(ABC):
         if dir_path_obj.exists():
             shutil.rmtree(dir_path, ignore_errors=True)
 
-    def check_gdal_image_file(self, gdal_img):
+    def check_gdal_image_file(self, gdal_img, check_bands=True):
         """
         A function which checks a GDAL compatible image file and returns an error message if appropriate.
 
         :param gdal_img: the file path to the gdal image file.
+        :param check_bands: boolean specifying whether individual image bands should be
+                            opened and checked (Default: True)
         :return: boolean (True: file OK; False: Error found), string (error message if required otherwise empty string)
 
         """
@@ -221,16 +223,36 @@ class PBPTProcessToolsBase(ABC):
         err_str = ''
         if os.path.exists(gdal_img):
             from osgeo import gdal
+            from pbprocesstools.pbpt_utils import PBPTGDALErrorHandler
+
+            err = PBPTGDALErrorHandler()
+            err_handler = err.handler
+            gdal.PushErrorHandler(err_handler)
             gdal.UseExceptions()
+
             try:
                 raster_ds = gdal.Open(gdal_img, gdal.GA_ReadOnly)
                 if raster_ds is None:
                     file_ok = False
-                    err_str = 'GDAL could not open the dataset.'
+                    err_str = 'GDAL could not open the dataset, returned None.'
+                elif check_bands:
+                    n_bands = raster_ds.RasterCount
+                    for n in range(n_bands):
+                        band = n + 1
+                        img_band = raster_ds.GetRasterBand(band)
+                        if img_band is None:
+                            file_ok = False
+                            err_str = 'GDAL could not open band {} in the dataset, returned None.'.format(band)
                 raster_ds = None
             except Exception as e:
                 file_ok = False
                 err_str = str(e)
+            else:
+                if err.err_level >= gdal.CE_Warning:
+                    file_ok = False
+                    err_str = str(err.err_msg)
+            finally:
+                gdal.PopErrorHandler()
         else:
             file_ok = False
             err_str = 'File does not exist.'
@@ -248,12 +270,18 @@ class PBPTProcessToolsBase(ABC):
         err_str = ''
         if os.path.exists(gdal_vec):
             from osgeo import gdal
+            from pbprocesstools.pbpt_utils import PBPTGDALErrorHandler
+
+            err = PBPTGDALErrorHandler()
+            err_handler = err.handler
+            gdal.PushErrorHandler(err_handler)
             gdal.UseExceptions()
+
             try:
                 vec_ds = gdal.OpenEx(gdal_vec, gdal.OF_VECTOR )
                 if vec_ds is None:
                     file_ok = False
-                    err_str = 'GDAL could not open the data source.'
+                    err_str = 'GDAL could not open the data source, returned None.'
                 else:
                     for lyr_idx in range(vec_ds.GetLayerCount()):
                         vec_lyr = vec_ds.GetLayerByIndex(lyr_idx)
@@ -265,6 +293,12 @@ class PBPTProcessToolsBase(ABC):
             except Exception as e:
                 file_ok = False
                 err_str = str(e)
+            else:
+                if err.err_level >= gdal.CE_Warning:
+                    file_ok = False
+                    err_str = str(err.err_msg)
+            finally:
+                gdal.PopErrorHandler()
         else:
             file_ok = False
             err_str = 'File does not exist.'
