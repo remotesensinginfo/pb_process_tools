@@ -879,6 +879,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         if db_info_file is None:
             db_info_file = "process_db_info_{}.json".format(self.uid)
             db_info_file = os.path.abspath(db_info_file)
+        else:
+            db_info_file = os.path.abspath(db_info_file)
 
         db_info = dict()
         db_info["db_conn_str"] = self.db_conn_str
@@ -927,6 +929,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         pbpt_utils = PBPTUtils()
         if db_info_file is None:
             db_info_file = "process_db_info_{}.json".format(self.uid)
+            db_info_file = os.path.abspath(db_info_file)
+        else:
             db_info_file = os.path.abspath(db_info_file)
 
         db_info = dict()
