@@ -12,5 +12,7 @@ jobs:
           python-version: 3.9
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Install pb_process_tools
+        run: python setup.py install
       - name: Run Test
         run: python test/run_all_tests.py
