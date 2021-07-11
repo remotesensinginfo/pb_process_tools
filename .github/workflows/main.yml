@@ -7,10 +7,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python 3.9
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@master
         with:
-          python-version: '3.9'
-     - name: Install dependencies
-       run: pip install -r requirements.txt
-     - name: Run Test
-       run: python test/run_all_tests.py
+          python-version: 3.9
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run Test
+        run: python test/run_all_tests.py
