@@ -19,9 +19,9 @@ Using the ``PBPTQProcessTool`` and ``PBPTGenQProcessToolCmds`` abstract classes 
     * checking whether those tasks completed
     * reporting on time take and any errors.
 
-The job information is stored within an sqlite database, with the database a JSON field is used to store a dictionary of the input parameters for each task.
+The job information is stored within an sqlite or postgresql database, using a JSON field is used to store a dictionary of the input parameters for each task.
 
-The first step is to create an implementation of the class which is going to before the data processing:
+The first step is to create an implementation of the class which is going to do the data processing:
 
 This python script has been saved in a file called ``perform_processing.py``::
 
@@ -138,17 +138,17 @@ To remove outputs for all jobs then you can use the following::
 
 Where you have had an error occur it can be useful to run a single task in isolation without the database recording any information and any exception being returned to the console rather than captured. This can be performed by calling the processing python file. For example, to process job 20, run the following command::
 
-    python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20
+    python perform_processing.py --dbinfo process_db_info.json -j 20
 
 Where the ``--dbinfo`` input will have been generated and provides the database location and connection information. You're file name will be similar but with a different random set of characters at the end.
 
 You can remove the outputs for just one job using the following command::
 
-    python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20 -r
+    python perform_processing.py --dbinfo process_db_info.json -j 20 -r
 
 You can also print the parameters for a job as well::
 
-    python perform_processing.py --dbinfo process_db_info_0c63a8d2.json -j 20 -p
+    python perform_processing.py --dbinfo process_db_info.json -j 20 -p
 
 
 

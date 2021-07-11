@@ -612,34 +612,3 @@ class PBPTJSONParseHelper(object):
             raise Exception("Retrieved value is not a list.")
         return curr_json_obj
 
-    def findStringValueESALst(self, lst_json_obj, name):
-        """
-
-        :param lst_json_obj:
-        :param name:
-        :return: [found, value]
-        """
-        value = ""
-        found = False
-        for json_obj in lst_json_obj:
-            if json_obj["name"] == name:
-                value = json_obj["content"]
-                found = True
-                break
-        return [found, value]
-
-    def findIntegerValueESALst(self, lst_json_obj, name):
-        """
-
-        :param lst_json_obj:
-        :param name:
-        :return: [found, value]
-        """
-        value = 0
-        found = False
-        for json_obj in lst_json_obj:
-            if json_obj["name"] == name:
-                value = int(json_obj["content"])
-                found = True
-                break
-        return [found, value]

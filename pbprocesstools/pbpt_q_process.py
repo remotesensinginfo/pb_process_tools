@@ -176,7 +176,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
 
     def completed_processing(self, **kwargs):
         """
-        A function which will create a reference file, defined by 'confirm_exe'
+        A function which will create a reference file, defined by 'out_cmp_file'
         key within the self.params dict.
 
         :param kwargs: allows the user to pass custom variables to the function
@@ -218,6 +218,9 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                 job_info.End = datetime.datetime.now()
                 ses.commit()
             ses.close()
+
+        if 'out_cmp_file' in self.params:
+            pathlib.Path(self.params['out_cmp_file']).touch()
 
     def record_process_error(self, err_info, **kwargs):
         """
@@ -543,7 +546,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             self.sqlite_db_file = None
             self.db_conn_str = pbpt_utils.readTextFileNoNewLines(db_conn_file)
             if lock_file_path is None:
-                self.lock_file_path = "pbpt_tmp_lock_file_{}.txt".format(self.uid)
+                self.lock_file_path = "pbpt_tmp_lock_file.txt"
             else:
                 self.lock_file_path = os.path.abspath(lock_file_path)
             if not os.path.exists(self.lock_file_path):
@@ -1008,8 +1011,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         This function is executed when the user provides the --check option on the terminal.
         This function will by default output two files:
 
-         * processing_errs_scns_yyyymmdd.txt
-         * non_complete_errs_yyyymmdd.txt
+         * processing_errs_scns_yyyymmdd_hhmmss.txt
+         * non_complete_errs_yyyymmdd_hhmmss.txt
 
         To change the output file names you will probably want to create your own version of this function
         calling the self.check_job_outputs function.
