@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
+
 class PBPTProcessJob(Base):
     __tablename__ = "PBPTProcessJob"
 
@@ -75,8 +76,8 @@ class PBPTProcessJob(Base):
 def set_sqlite_pragma(dbapi_connection, connection_record):
     if isinstance(dbapi_connection, SQLite3Connection):
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode = TRUNCATE")#MEMORY
-        cursor.execute("PRAGMA synchronous = ON")#OFF
+        cursor.execute("PRAGMA journal_mode = TRUNCATE")  # MEMORY
+        cursor.execute("PRAGMA synchronous = ON")  # OFF
         cursor.execute("PRAGMA temp_store = MEMORY")
         cursor.execute("PRAGMA cache_size = 500000")
         cursor.close()
@@ -90,15 +91,20 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
     file as the input.
     """
 
-    def __init__(self, queue_db_info=None, cmd_name=None, descript=None, params=None, uid_len=6):
+    def __init__(
+        self, queue_db_info=None, cmd_name=None, descript=None, params=None, uid_len=6
+    ):
         """
-        A class to implement a processing tool for batch processing data analysis using a queue.
+        A class to implement a processing tool for batch processing data analysis
+        using a queue.
 
-        :param queue_db_info: The database dict info. Require fields: db_conn_str, sqlite_db_file
-        :param cmd_name: optionally provide the name of the command (i.e., the python script name).
+        :param queue_db_info: The database dict info. Require fields: db_conn_str,
+                              sqlite_db_file
+        :param cmd_name: optionally provide the name of the command (i.e., the
+                         python script name).
         :param descript: optionally provide a description of the command file.
-        :param params: optionally provide a dict which will be the options for the processing to execute
-                       (e.g., the input and output files).
+        :param params: optionally provide a dict which will be the options for
+                       the processing to execute (e.g., the input and output files).
 
 
         """
@@ -113,11 +119,11 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
 
     def set_params(self, params):
         """
-        A function to set the parameters used for the analysis without setting them within the
-        constructor or via a command line JSON file.
+        A function to set the parameters used for the analysis without setting them
+        within the constructor or via a command line JSON file.
 
-        :param params: provide a dict which will be the options for the processing to execute
-                       (e.g., the input and output files).
+        :param params: provide a dict which will be the options for the processing to
+                       execute (e.g., the input and output files).
 
         """
         self.params = params
@@ -126,7 +132,8 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         """
         Set the queue database info.
 
-        :param queue_db_info: The database dict info. Require fields: db_conn_str, sqlite_db_file
+        :param queue_db_info: The database dict info. Require fields: db_conn_str,
+                              sqlite_db_file
 
         """
         self.queue_db_info = queue_db_info
@@ -137,29 +144,39 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         works.
 
         """
-        if 'db_conn_str' not in self.queue_db_info:
+        if "db_conn_str" not in self.queue_db_info:
             raise Exception("db_conn_str key has is not present.")
 
-        if 'lck_file' not in self.queue_db_info:
+        if "lck_file" not in self.queue_db_info:
             raise Exception("lck_file key has is not present.")
 
         self.use_sqlite = False
-        if 'sqlite_db_file' in self.queue_db_info:
+        if "sqlite_db_file" in self.queue_db_info:
             self.use_sqlite = True
 
-        if self.use_sqlite and (not os.path.exists(self.queue_db_info['sqlite_db_file'])):
-            raise Exception("The SQLite database file does "
-                            "not exist: '{}'".format(self.queue_db_info['sqlite_db_file']))
+        if self.use_sqlite and (
+            not os.path.exists(self.queue_db_info["sqlite_db_file"])
+        ):
+            raise Exception(
+                "The SQLite database file does "
+                "not exist: '{}'".format(self.queue_db_info["sqlite_db_file"])
+            )
 
         try:
             logger.debug("Creating Database Engine and Session.")
-            db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+            db_engine = sqlalchemy.create_engine(
+                self.queue_db_info["db_conn_str"], pool_pre_ping=True
+            )
             session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
             ses = session_sqlalc()
             ses.close()
             logger.debug("Created Database Engine and Session.")
         except:
-            raise Exception("The database could not be connected to: '{}'".format(self.queue_db_info['db_conn_str']))
+            raise Exception(
+                "The database could not be connected to: '{}'".format(
+                    self.queue_db_info["db_conn_str"]
+                )
+            )
 
         return True
 
@@ -185,33 +202,50 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         """
         if self.use_sqlite:
             pbpt_utils = PBPTUtils()
-            if pbpt_utils.get_file_lock(self.queue_db_info['lck_file'], sleep_period=1,
-                                        wait_iters=180, use_except=False, timeout=300):
+            if pbpt_utils.get_file_lock(
+                self.queue_db_info["lck_file"],
+                sleep_period=1,
+                wait_iters=180,
+                use_except=False,
+                timeout=300,
+            ):
                 try:
                     logger.debug("Creating Database Engine and Session.")
-                    db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+                    db_engine = sqlalchemy.create_engine(
+                        self.queue_db_info["db_conn_str"], pool_pre_ping=True
+                    )
                     session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
                     ses = session_sqlalc()
                     logger.debug("Created Database Engine and Session.")
 
-                    job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+                    job_info = (
+                        ses.query(PBPTProcessJob)
+                        .filter(PBPTProcessJob.PID == self.job_pid)
+                        .one_or_none()
+                    )
                     if job_info is not None:
                         job_info.Completed = True
                         job_info.Error = False
                         job_info.End = datetime.datetime.now()
                         ses.commit()
                     ses.close()
-                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+                    pbpt_utils.release_file_lock(self.queue_db_info["lck_file"])
                 except:
-                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+                    pbpt_utils.release_file_lock(self.queue_db_info["lck_file"])
         else:
             logger.debug("Creating Database Engine and Session.")
-            db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+            db_engine = sqlalchemy.create_engine(
+                self.queue_db_info["db_conn_str"], pool_pre_ping=True
+            )
             session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
             ses = session_sqlalc()
             logger.debug("Created Database Engine and Session.")
 
-            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+            job_info = (
+                ses.query(PBPTProcessJob)
+                .filter(PBPTProcessJob.PID == self.job_pid)
+                .one_or_none()
+            )
             if job_info is not None:
                 job_info.Completed = True
                 job_info.Error = False
@@ -221,7 +255,8 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
 
     def record_process_error(self, err_info, **kwargs):
         """
-        A function records an error in the database. Usually called instead of completed_processing.
+        A function records an error in the database. Usually called instead of
+        completed_processing.
 
         :param err_info: a dict with information on the error to be stored in the
                          database.
@@ -231,16 +266,27 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
         """
         if self.use_sqlite:
             pbpt_utils = PBPTUtils()
-            if pbpt_utils.get_file_lock(self.queue_db_info['lck_file'], sleep_period=1,
-                                        wait_iters=180, use_except=False, timeout=300):
+            if pbpt_utils.get_file_lock(
+                self.queue_db_info["lck_file"],
+                sleep_period=1,
+                wait_iters=180,
+                use_except=False,
+                timeout=300,
+            ):
                 try:
                     logger.debug("Creating Database Engine and Session.")
-                    db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+                    db_engine = sqlalchemy.create_engine(
+                        self.queue_db_info["db_conn_str"], pool_pre_ping=True
+                    )
                     session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
                     ses = session_sqlalc()
                     logger.debug("Created Database Engine and Session.")
 
-                    job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+                    job_info = (
+                        ses.query(PBPTProcessJob)
+                        .filter(PBPTProcessJob.PID == self.job_pid)
+                        .one_or_none()
+                    )
                     if job_info is not None:
                         job_info.Completed = False
                         job_info.Error = True
@@ -249,17 +295,23 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                         flag_modified(job_info, "ErrorInfo")
                         ses.commit()
                     ses.close()
-                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+                    pbpt_utils.release_file_lock(self.queue_db_info["lck_file"])
                 except:
-                    pbpt_utils.release_file_lock(self.queue_db_info['lck_file'])
+                    pbpt_utils.release_file_lock(self.queue_db_info["lck_file"])
         else:
             logger.debug("Creating Database Engine and Session.")
-            db_engine = sqlalchemy.create_engine(self.queue_db_info['db_conn_str'], pool_pre_ping=True)
+            db_engine = sqlalchemy.create_engine(
+                self.queue_db_info["db_conn_str"], pool_pre_ping=True
+            )
             session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
             ses = session_sqlalc()
             logger.debug("Created Database Engine and Session.")
 
-            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.job_pid).one_or_none()
+            job_info = (
+                ses.query(PBPTProcessJob)
+                .filter(PBPTProcessJob.PID == self.job_pid)
+                .one_or_none()
+            )
             if job_info is not None:
                 job_info.Completed = False
                 job_info.Error = True
@@ -285,16 +337,19 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
     @abstractmethod
     def outputs_present(self, **kwargs):
         """
-        An abstract function which is required to returns a tuple (boolean, dict with outputs as keys and error
-        message as the value). The boolean relates to whether all the outputs are present on the system; True all
-        are present and the dict will be empty, False and some of the outputs will not be present and an error
-        message will be available within the dict.
+        An abstract function which is required to returns a tuple (boolean, dict with
+        outputs as keys and error message as the value). The boolean relates to
+        whether all the outputs are present on the system; True all are present and
+        the dict will be empty, False and some of the outputs will not be present
+        and an error message will be available within the dict.
 
-        Note. for many applications this function can simply call self.check_files returning it's output.
+        Note. for many applications this function can simply call self.check_files
+        returning it's output.
 
         :param kwargs: allows the user to pass custom variables to the function
                        (e.q., obj.outputs_present(mod_version=True)).
-        :return: tuple (boolean, dict with outputs as keys and error message as the value)
+        :return: tuple (boolean, dict with outputs as keys and error message as
+                 the value)
 
         """
         pass
@@ -302,8 +357,9 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
     @abstractmethod
     def remove_outputs(self, **kwargs):
         """
-        An abstract function which checks if an output is present and removes them. This can be useful
-        if an job failed part way through processing and needs to be reset.
+        An abstract function which checks if an output is present and removes them.
+        This can be useful if an job failed part way through processing and needs
+        to be reset.
 
         :param kwargs: allows the user to pass custom variables to the function
                        (e.q., obj.remove_outputs(mod_version=True)).
@@ -339,11 +395,15 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                 fields_str = err_fields[0]
                 for i in range(1, len(err_fields)):
                     fields_str = "{}, {}".format(fields_str, err_fields[i])
-                raise Exception("The following fields '{}' should have been provided "
-                                "but were not within the params dict.".format(fields_str))
+                raise Exception(
+                    "The following fields '{}' should have been provided "
+                    "but were not within the params dict.".format(fields_str)
+                )
             else:
-                raise Exception("The field '{}' should have been provided but was not "
-                                "within the params dict.".format(err_fields[0]))
+                raise Exception(
+                    "The field '{}' should have been provided but was not "
+                    "within the params dict.".format(err_fields[0])
+                )
         return rtn_val
 
     def parse_cmds(self, argv=None, **kwargs):
@@ -359,21 +419,44 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
 
         """
         try:
-            parser = argparse.ArgumentParser(prog=self.cmd_name, description=self.descript)
-            parser.add_argument("-d", "--dbinfo", type=str,
-                                required=True, help="Specify a file path for a JSON file "
-                                                    "containing the database info")
-            parser.add_argument("-j", "--job", type=int, required=False, help="Specify a job ID for the job to be "
-                                                                             "executed. This is a debug tool and "
-                                                                             "therefore the database will not be "
-                                                                             "updated and the job will be run "
-                                                                             "regardless of the database status.")
-            parser.add_argument("-p", "--params", action='store_true', default=False,
-                                help="If a job is specified then rather than running the parameters will be "
-                                     "printed to the console.")
-            parser.add_argument("-r", "--rmouts", action='store_true', default=False,
-                                help="If a job is specified then rather than running the job the outputs will be "
-                                     "removed.")
+            parser = argparse.ArgumentParser(
+                prog=self.cmd_name, description=self.descript
+            )
+            parser.add_argument(
+                "-d",
+                "--dbinfo",
+                type=str,
+                required=True,
+                help="Specify a file path for a JSON file "
+                "containing the database info",
+            )
+            parser.add_argument(
+                "-j",
+                "--job",
+                type=int,
+                required=False,
+                help="Specify a job ID for the job to be "
+                "executed. This is a debug tool and "
+                "therefore the database will not be "
+                "updated and the job will be run "
+                "regardless of the database status.",
+            )
+            parser.add_argument(
+                "-p",
+                "--params",
+                action="store_true",
+                default=False,
+                help="If a job is specified then rather than running the parameters "
+                "will be printed to the console.",
+            )
+            parser.add_argument(
+                "-r",
+                "--rmouts",
+                action="store_true",
+                default=False,
+                help="If a job is specified then rather than running the job "
+                "the outputs will be removed.",
+            )
             if argv is None:
                 argv = sys.argv[1:]
             args = parser.parse_args(argv)
@@ -385,50 +468,67 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
             self.check_db_info()
         except Exception:
             import traceback
+
             traceback.print_exception(*sys.exc_info())
             return False
         return True
 
     def std_run(self, **kwargs):
         """
-        A function which runs a standard processing sequence of parsing the command input(s),
-        then called the do_processing() function and finally the completed_processing()
-        functions.
+        A function which runs a standard processing sequence of parsing the command
+        input(s), then called the do_processing() function and finally the
+        completed_processing() functions.
 
-        :param kwargs: allows the user to pass custom variables to the function (e.q., obj.std_run(var='blah')).
-                       These options are passed to the parse_cmds(), do_processing() and completed_processing()
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.std_run(var='blah')). These options are passed to
+                       the parse_cmds(), do_processing() and completed_processing()
                        functions.
 
         """
         import time
         import random
+
         logger.debug("Starting to execute the 'std_run' function.")
         pbpt_utils = PBPTUtils()
         if self.parse_cmds(**kwargs):
             if self.debug_job_id is None:
-                lck_file_path = self.queue_db_info['lck_file']
+                lck_file_path = self.queue_db_info["lck_file"]
                 lck_file_dir, lck_file_filename = os.path.split(lck_file_path)
-                db_conn_str = self.queue_db_info['db_conn_str']
+                db_conn_str = self.queue_db_info["db_conn_str"]
                 logger.debug("Database connection info: '{}'.".format(db_conn_str))
                 found_job = False
-                # Sleep for a random period of time to minimise clashes between multiple processes so they are offset.
-                time.sleep(random.randint(1,10))
+                # Sleep for a random period of time to minimise clashes between
+                # multiple processes so they are offset.
+                time.sleep(random.randint(1, 10))
                 n_failed_lck = 0
                 while True:
-                    if pbpt_utils.get_file_lock(lck_file_path, sleep_period=1, wait_iters=180,
-                                                use_except=False, timeout=300):
+                    if pbpt_utils.get_file_lock(
+                        lck_file_path,
+                        sleep_period=1,
+                        wait_iters=180,
+                        use_except=False,
+                        timeout=300,
+                    ):
                         n_failed_lck = 0
                         try:
                             logger.debug("Creating Database Engine and Session.")
-                            db_engine = sqlalchemy.create_engine(db_conn_str, pool_pre_ping=True)
+                            db_engine = sqlalchemy.create_engine(
+                                db_conn_str, pool_pre_ping=True
+                            )
                             session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
                             ses = session_sqlalc()
                             logger.debug("Created Database Engine and Session.")
 
                             logger.debug("Find the next scene to process.")
-                            job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Completed == False,
-                                                                        PBPTProcessJob.Started == False).order_by(
-                                                                        PBPTProcessJob.PID.asc()).first()
+                            job_info = (
+                                ses.query(PBPTProcessJob)
+                                .filter(
+                                    PBPTProcessJob.Completed == False,
+                                    PBPTProcessJob.Started == False,
+                                )
+                                .order_by(PBPTProcessJob.PID.asc())
+                                .first()
+                            )
                             if job_info is not None:
                                 found_job = True
                                 self.job_pid = job_info.PID
@@ -436,14 +536,22 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                                 job_info.Started = True
                                 job_info.Start = datetime.datetime.now()
                                 ses.commit()
-                                logger.debug("Found the next scene to process. PID: {}".format(self.job_pid))
+                                logger.debug(
+                                    "Found the next scene to process. PID: {}".format(
+                                        self.job_pid
+                                    )
+                                )
                             else:
                                 found_job = False
                                 logger.debug("No job found to process - finishing.")
                             ses.close()
                             logger.debug("Closed Database Engine and Session.")
                         except Exception as e:
-                            logger.debug("Failed to create the database connection: '{}'".format(db_conn_str))
+                            logger.debug(
+                                "Failed to create the database connection: '{}'".format(
+                                    db_conn_str
+                                )
+                            )
                             logger.exception(e)
                             found_job = False
                         pbpt_utils.release_file_lock(lck_file_path, timeout=300)
@@ -454,9 +562,10 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                                 self.completed_processing(**kwargs)
                             except Exception as e:
                                 import traceback
+
                                 err_dict = dict()
-                                err_dict['error'] = str(e)
-                                err_dict['traceback'] = traceback.format_exc()
+                                err_dict["error"] = str(e)
+                                err_dict["traceback"] = traceback.format_exc()
                                 self.record_process_error(err_dict)
                         else:
                             break
@@ -468,28 +577,45 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                         pbpt_utils.clean_file_locks(lck_file_dir, timeout=300)
                         break
             else:
-                db_conn_str = self.queue_db_info['db_conn_str']
+                db_conn_str = self.queue_db_info["db_conn_str"]
                 try:
                     logger.debug("Creating Database Engine and Session.")
-                    db_engine = sqlalchemy.create_engine(db_conn_str, pool_pre_ping=True)
+                    db_engine = sqlalchemy.create_engine(
+                        db_conn_str, pool_pre_ping=True
+                    )
                     session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
                     ses = session_sqlalc()
                     logger.debug("Created Database Engine and Session.")
 
-                    logger.debug("Searching the database for job ID: '{}'".format(self.debug_job_id))
-                    job_info = ses.query(PBPTProcessJob).filter(PBPTProcessJob.PID == self.debug_job_id).one_or_none()
+                    logger.debug(
+                        "Searching the database for job ID: '{}'".format(
+                            self.debug_job_id
+                        )
+                    )
+                    job_info = (
+                        ses.query(PBPTProcessJob)
+                        .filter(PBPTProcessJob.PID == self.debug_job_id)
+                        .one_or_none()
+                    )
                     ses.close()
                     logger.debug("Closed Database Engine and Session.")
                 except Exception as e:
-                    logger.debug("Failed to create the database connection: '{}'".format(db_conn_str))
+                    logger.debug(
+                        "Failed to create the database connection: '{}'".format(
+                            db_conn_str
+                        )
+                    )
                     logger.exception(e)
 
                 self.job_pid = self.debug_job_id
                 self.params = job_info.JobParams
                 if job_info is not None:
-                    logger.debug("Found the job to process, PID: {}".format(self.job_pid))
+                    logger.debug(
+                        "Found the job to process, PID: {}".format(self.job_pid)
+                    )
                     if self.debug_job_id_params:
                         import pprint
+
                         pprint.pprint(self.params)
                     elif self.debug_job_id_rmouts:
                         self.check_required_fields(**kwargs)
@@ -498,27 +624,43 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                         self.check_required_fields(**kwargs)
                         self.do_processing(**kwargs)
 
-                    logger.debug("Finished processing the job, PID: {}".format(self.job_pid))
+                    logger.debug(
+                        "Finished processing the job, PID: {}".format(self.job_pid)
+                    )
                 else:
-                    logger.debug("No job (PID: {}) found to process - finishing.".format(self.job_pid))
+                    logger.debug(
+                        "No job (PID: {}) found to process - finishing.".format(
+                            self.job_pid
+                        )
+                    )
 
 
 class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
-
-    def __init__(self, cmd, sqlite_db_file=None, db_conn_file=None, lock_file_path=None, uid_len=6,
-                 process_tools_path=None, process_tools_mod=None, process_tools_cls=None):
+    def __init__(
+        self,
+        cmd,
+        sqlite_db_file=None,
+        db_conn_file=None,
+        lock_file_path=None,
+        uid_len=6,
+        process_tools_path=None,
+        process_tools_mod=None,
+        process_tools_cls=None,
+    ):
         """
-        A class to implement a the generation of commands for batch processing data analysis.
+        A class to implement a the generation of commands for batch processing data
+        analysis.
 
         :param cmd: the command to be executed (e.g., python run_analysis.py).
         :param sqlite_db_file:
         :param db_conn_file:
         :param lock_file_path:
         :param uid_len:
-        :param process_tools_path: The path (if not already in path; i.e., same directory) to find the
-                                   PBPTQProcessTool implementation used within this class
-        :param process_tools_mod: The module name (i.e., python file name 'xxxx.py' containing the PBPTQProcessTool
-                                  implementation.
+        :param process_tools_path: The path (if not already in path; i.e., same
+                                   directory) to find the PBPTQProcessTool
+                                   implementation used within this class
+        :param process_tools_mod: The module name (i.e., python file name 'xxxx.py'
+                                  containing the PBPTQProcessTool implementation.
         :param process_tools_cls: The name of the class implementing PBPTQProcessTool.
 
         """
@@ -567,49 +709,69 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         obj.gen_command_info(input='')
         kwargs['input']
 
-        :param kwargs: allows the user to pass custom variables to the function (e.q., obj.gen_command_info(input='')).
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.gen_command_info(input='')).
 
         """
         pass
 
-    def check_job_outputs(self, out_err_pid_file, out_err_info_file, process_tools_path=None,
-                          process_tools_mod=None, process_tools_cls=None, **kwargs):
+    def check_job_outputs(
+        self,
+        out_err_pid_file,
+        out_err_info_file,
+        process_tools_path=None,
+        process_tools_mod=None,
+        process_tools_cls=None,
+        **kwargs
+    ):
         """
-        A function which following the completion of all the processing for a job tests whether all the output
-        files where created (i.e., the job successfully completed).
+        A function which following the completion of all the processing for a job
+        tests whether all the output files where created (i.e., the job successfully
+        completed).
 
-        :param out_err_pid_file: the output file name and path for the list of database PIDs which have not
-                                 been successfully processed.
-        :param out_err_info_file: the output file name and path for the output error report from this function
-                                  where processing might not have fully completed.
-        :param process_tools_mod: the path containing the implementation of the PBPTProcessTool class
-                                  used for the processing to be checked. If None then class value passed to
+        :param out_err_pid_file: the output file name and path for the list of database
+                                 PIDs which have not been successfully processed.
+        :param out_err_info_file: the output file name and path for the output error
+                                  report from this function where processing might
+                                  not have fully completed.
+        :param process_tools_mod: the path containing the implementation of the
+                                  PBPTProcessTool class used for the processing to
+                                  be checked. If None then class value passed to
                                   constructor will be used.
-        :param process_tools_mod: the module (i.e., path to python script) containing the implementation
-                                  of the PBPTProcessTool class used for the processing to be checked.
-        :param process_tools_cls: the name of the class implementing the PBPTProcessTool class used
+        :param process_tools_mod: the module (i.e., path to python script) containing
+                                  the implementation of the PBPTProcessTool class used
                                   for the processing to be checked.
-        :param kwargs: allows the user to pass custom variables to the function (e.q., obj.gen_command_info(input='')),
-                       these will be passed to the process_tools_mod outputs_present function.
+        :param process_tools_cls: the name of the class implementing the
+                                  PBPTProcessTool class used for the processing to
+                                  be checked.
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.gen_command_info(input='')), these will be passed
+                       to the process_tools_mod outputs_present function.
 
         """
         import importlib
 
         queue_db_info = dict()
-        queue_db_info['sqlite_db_file'] = self.sqlite_db_file
-        queue_db_info['db_conn_str'] = self.db_conn_str
+        queue_db_info["sqlite_db_file"] = self.sqlite_db_file
+        queue_db_info["db_conn_str"] = self.db_conn_str
 
         if process_tools_path is None:
             process_tools_path = self.process_tools_path
 
         if process_tools_mod is None:
             if self.process_tools_mod is None:
-                raise Exception("A PBPTProcessTool implementation module has not been provided to the constructor.")
+                raise Exception(
+                    "A PBPTProcessTool implementation module has "
+                    "not been provided to the constructor."
+                )
             process_tools_mod = self.process_tools_mod
 
         if process_tools_cls is None:
             if self.process_tools_cls is None:
-                raise Exception("A PBPTProcessTool implementation class has not been provided to the constructor.")
+                raise Exception(
+                    "A PBPTProcessTool implementation class has not "
+                    "been provided to the constructor."
+                )
             process_tools_cls = self.process_tools_cls
 
         if process_tools_path is not None:
@@ -621,7 +783,9 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
         process_tools_cls_inst = getattr(process_tools_mod_inst, process_tools_cls)()
         if process_tools_cls_inst is None:
-            raise Exception("Could not create instance of '{}'".format(process_tools_cls))
+            raise Exception(
+                "Could not create instance of '{}'".format(process_tools_cls)
+            )
         process_tools_cls_inst.set_queue_db_info(queue_db_info)
 
         pbpt_utils = PBPTUtils()
@@ -634,13 +798,15 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         ses = session_sqlalc()
         logger.debug("Created Database Engine and Session.")
 
-        jobs = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Checked==False).all()
+        jobs = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Checked == False).all()
         n_errs = 0
         if jobs is not None:
             for job_info in tqdm.tqdm(jobs):
                 if job_info.Completed:
                     process_tools_cls_inst.set_params(job_info.JobParams)
-                    files_present, errs_dict = process_tools_cls_inst.outputs_present(**kwargs)
+                    files_present, errs_dict = process_tools_cls_inst.outputs_present(
+                        **kwargs
+                    )
                     if not files_present:
                         n_errs = n_errs + 1
                         err_pids.append(job_info.PID)
@@ -666,30 +832,44 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             pathlib.Path(out_err_pid_file).touch()
             pathlib.Path(out_err_info_file).touch()
 
-    def remove_job_outputs(self, all_jobs=False, error_jobs=False, process_tools_path=None, process_tools_mod=None,
-                           process_tools_cls=None, **kwargs):
+    def remove_job_outputs(
+        self,
+        all_jobs=False,
+        error_jobs=False,
+        process_tools_path=None,
+        process_tools_mod=None,
+        process_tools_cls=None,
+        **kwargs
+    ):
         """
-        A function which following the completion of all the processing for a job tests whether all the output
-        files where created (i.e., the job successfully completed).
+        A function which following the completion of all the processing for a job
+        tests whether all the output files where created (i.e., the job
+        successfully completed).
 
         :param all_jobs: boolean specifying that outputs should be removed for all jobs.
-        :param error_jobs: boolean specifying that outputs should be removed for error jobs - either
-                           logged an error or started but not finished.
-        :param process_tools_mod: the path containing the implementation of the PBPTProcessTool class
-                                  used for the processing to be checked. If None then class value passed to
+        :param error_jobs: boolean specifying that outputs should be removed for error
+                           jobs - either logged an error or started but not finished.
+        :param process_tools_mod: the path containing the implementation of the
+                                  PBPTProcessTool class used for the processing to be
+                                  checked. If None then class value passed to
                                   constructor will be used.
-        :param process_tools_mod: the module (i.e., path to python script) containing the implementation
-                                  of the PBPTProcessTool class used for the processing to be checked.
-        :param process_tools_cls: the name of the class implementing the PBPTProcessTool class used
+        :param process_tools_mod: the module (i.e., path to python script) containing
+                                  the implementation of the PBPTProcessTool class used
                                   for the processing to be checked.
-        :param kwargs: allows the user to pass custom variables to the function (e.q., obj.gen_command_info(input='')),
-                       these will be passed to the process_tools_mod outputs_present function.
+        :param process_tools_cls: the name of the class implementing the PBPTProcessTool
+                                  class used for the processing to be checked.
+        :param kwargs: allows the user to pass custom variables to the function
+                       (e.q., obj.gen_command_info(input='')), these will be passed
+                       to the process_tools_mod outputs_present function.
 
         """
         import importlib
 
         if (not all_jobs) and (not error_jobs):
-            raise Exception("Must specify for either all or only error jobs to have the outputs removed.")
+            raise Exception(
+                "Must specify for either all or only error "
+                "jobs to have the outputs removed."
+            )
 
         queue_db_info = dict()
         queue_db_info["db_conn_str"] = self.db_conn_str
@@ -702,12 +882,18 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
         if process_tools_mod is None:
             if self.process_tools_mod is None:
-                raise Exception("A PBPTProcessTool implementation module has not been provided to the constructor.")
+                raise Exception(
+                    "A PBPTProcessTool implementation module has not "
+                    "been provided to the constructor."
+                )
             process_tools_mod = self.process_tools_mod
 
         if process_tools_cls is None:
             if self.process_tools_cls is None:
-                raise Exception("A PBPTProcessTool implementation class has not been provided to the constructor.")
+                raise Exception(
+                    "A PBPTProcessTool implementation class has not "
+                    "been provided to the constructor."
+                )
             process_tools_cls = self.process_tools_cls
 
         if process_tools_path is not None:
@@ -719,7 +905,9 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
         process_tools_cls_inst = getattr(process_tools_mod_inst, process_tools_cls)()
         if process_tools_cls_inst is None:
-            raise Exception("Could not create instance of '{}'".format(process_tools_cls))
+            raise Exception(
+                "Could not create instance of '{}'".format(process_tools_cls)
+            )
         process_tools_cls_inst.set_queue_db_info(queue_db_info)
 
         logger.debug("Creating Database Engine and Session.")
@@ -731,10 +919,18 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         if all_jobs:
             jobs = ses.query(PBPTProcessJob).filter().all()
         elif error_jobs:
-            jobs = ses.query(PBPTProcessJob).filter(PBPTProcessJob.Started == True,
-                                                    PBPTProcessJob.Completed == False).all()
+            jobs = (
+                ses.query(PBPTProcessJob)
+                .filter(
+                    PBPTProcessJob.Started == True, PBPTProcessJob.Completed == False
+                )
+                .all()
+            )
         else:
-            raise Exception("Must specify for either all or only error jobs to have the outputs removed.")
+            raise Exception(
+                "Must specify for either all or only error jobs "
+                "to have the outputs removed."
+            )
 
         if jobs is not None:
             for job_info in tqdm.tqdm(jobs):
@@ -784,7 +980,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                     if job_info.Error:
                         n_errs += 1
                         err_info[job_info.PID] = dict()
-                        err_info[job_info.PID]['info'] = job_info.ErrorInfo
+                        err_info[job_info.PID]["info"] = job_info.ErrorInfo
 
                     if job_info.Started:
                         n_started += 1
@@ -794,29 +990,38 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
         out_info_dict = dict()
         if n_jobs > 0:
-            out_info_dict['job_n'] = dict()
-            out_info_dict['job_n']['n_completed'] = n_completed
-            out_info_dict['job_n']['n_errs'] = n_errs
-            out_info_dict['job_n']['n_started'] = n_started
-            out_info_dict['job_n']['n_ended'] = n_ended
-            out_info_dict['job_n']['total_n_jobs'] = n_jobs
+            out_info_dict["job_n"] = dict()
+            out_info_dict["job_n"]["n_completed"] = n_completed
+            out_info_dict["job_n"]["n_errs"] = n_errs
+            out_info_dict["job_n"]["n_started"] = n_started
+            out_info_dict["job_n"]["n_ended"] = n_ended
+            out_info_dict["job_n"]["total_n_jobs"] = n_jobs
 
             if len(job_times) > 0:
-                out_info_dict['job_times'] = dict()
-                out_info_dict['job_times'] = dict()
-                out_info_dict['job_times']['time_mean_secs'] = statistics.mean(job_times)
-                out_info_dict['job_times']['time_min_secs'] = min(job_times)
-                out_info_dict['job_times']['time_max_secs'] = max(job_times)
+                out_info_dict["job_times"] = dict()
+                out_info_dict["job_times"] = dict()
+                out_info_dict["job_times"]["time_mean_secs"] = statistics.mean(
+                    job_times
+                )
+                out_info_dict["job_times"]["time_min_secs"] = min(job_times)
+                out_info_dict["job_times"]["time_max_secs"] = max(job_times)
                 if len(job_times) > 1:
-                    out_info_dict['job_times']['time_stdev_secs'] = statistics.stdev(job_times)
-                out_info_dict['job_times']['time_median_secs'] = statistics.median(job_times)
+                    out_info_dict["job_times"]["time_stdev_secs"] = statistics.stdev(
+                        job_times
+                    )
+                out_info_dict["job_times"]["time_median_secs"] = statistics.median(
+                    job_times
+                )
                 if (len(job_times) > 1) and (py_sys_version_flt >= 3.8):
-                    out_info_dict['job_times']['time_quartiles_secs'] = statistics.quantiles(job_times)
+                    out_info_dict["job_times"][
+                        "time_quartiles_secs"
+                    ] = statistics.quantiles(job_times)
             out_info_dict["status"] = status_info
             out_info_dict["xerrors"] = err_info
 
         if out_report_file is None:
             import pprint
+
             pprint.pprint(out_info_dict)
         else:
             pbpt_utils = PBPTUtils()
@@ -826,8 +1031,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         """
         A function to write the output files for the commands.
 
-        :param cmd: optional input to override the __init__ variable. The command to be executed
-                    (e.g., python run_analysis.py).
+        :param cmd: optional input to override the __init__ variable. The command
+                    to be executed (e.g., python run_analysis.py).
 
         """
         if self.use_sqlite and os.path.exists(self.sqlite_db_file):
@@ -851,7 +1056,9 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         for i, param in enumerate(self.params):
             job_lst.append(PBPTProcessJob(PID=i, JobParams=param))
 
-        logger.info("There are {} jobs to be written to the database.".format(len(job_lst)))
+        logger.info(
+            "There are {} jobs to be written to the database.".format(len(job_lst))
+        )
         if len(job_lst) > 0:
             ses.add_all(job_lst)
             ses.commit()
@@ -863,15 +1070,17 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         A function which generates the scripts to execute on a local
         machine including using GNU parallel.
 
-        :param run_script: The script which will be executed to run analysis with multiple cores
+        :param run_script: The script which will be executed to run analysis
+                           with multiple cores
         :param cmds_sh_file: The shell script with the list of jobs to be executed
                              (i.e., equal to the number of cores specified)
-        :param n_cores: The number of cores to use for processing - it is assumed that jobs will only use a
-                        single core but if your jobs are going to use multiple cores then you'll need to
-                        consider how many cores you are going to be using in total.
-        :param db_info_file: An output file which will given to the processing commands with the
-                             database connection info. If None then a unique file name will be create
-                             automatically.
+        :param n_cores: The number of cores to use for processing - it is assumed
+                        that jobs will only use a single core but if your jobs are
+                        going to use multiple cores then you'll need to consider how
+                        many cores you are going to be using in total.
+        :param db_info_file: An output file which will given to the processing
+                             commands with the database connection info. If None
+                             then a unique file name will be create automatically.
 
         """
         logger.info("Create database info file.")
@@ -900,10 +1109,21 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         pbpt_utils.writeData2File(parallel_cmd, run_script)
         logger.info("Finished creating shell scripts.")
 
-    def create_slurm_sub_sh(self, jobname, mem_per_core_mb, log_dir, run_script='run_exe_analysis.sh',
-                            job_dir="job_scripts", db_info_file=None, account_name=None, n_cores_per_job=10,
-                            n_xtr_cmds=0, n_jobs=10, job_time_limit='2-23:59',
-                            module_load='module load parallel singularity'):
+    def create_slurm_sub_sh(
+        self,
+        jobname,
+        mem_per_core_mb,
+        log_dir,
+        run_script="run_exe_analysis.sh",
+        job_dir="job_scripts",
+        db_info_file=None,
+        account_name=None,
+        n_cores_per_job=10,
+        n_xtr_cmds=0,
+        n_jobs=10,
+        job_time_limit="2-23:59",
+        module_load="module load parallel singularity",
+    ):
         """
         A function which generates the scripts needed to run an analysis using slurm.
 
@@ -912,17 +1132,20 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         :param log_dir: a directory where the log files will be outputted.
         :param run_script: the file name and path for the script to be executed.
         :param job_dir: directory where the job scripts will be written.
-        :param db_info_file: An output file which will given to the processing commands with the
-                             database connection info. If None then a unique file name will be create
-                             automatically.
+        :param db_info_file: An output file which will given to the processing
+                             commands with the database connection info. If None
+                             then a unique file name will be create automatically.
         :param account_name: The slurm account name for the jobs to be submitted under.
         :param n_cores_per_job: the number of cores per job
-        :param n_xtr_cmds: the number of extra commands added to the list of commands which are executed using
-                           GNU parallel. This is basically the number of extra commands to fill any which
-                           fail during processing. Default: 0.
+        :param n_xtr_cmds: the number of extra commands added to the list of commands
+                           which are executed using GNU parallel. This is basically
+                           the number of extra commands to fill any which fail during
+                           processing. Default: 0.
         :param n_jobs: the number of jobs to split the input list of commands into.
-        :param job_time_limit: The time limit for the job: Days-HH:MM e.g., 2-23:59; 2 days, 23 hours and 59 minutes.
-        :param module_load: Module loads within the sbatch submission scripts. If None them ignored.
+        :param job_time_limit: The time limit for the job: Days-HH:MM e.g., 2-23:59;
+                               2 days, 23 hours and 59 minutes.
+        :param module_load: Module loads within the sbatch submission scripts. If
+                            None them ignored.
 
         """
         logger.info("Create database info file.")
@@ -955,14 +1178,16 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         if not os.path.exists(log_dir):
             os.mkdir(log_dir)
 
-        jobname = pbpt_utils.check_str(jobname, rm_non_ascii=True, rm_dashs=True, rm_spaces=True, rm_punc=True)
+        jobname = pbpt_utils.check_str(
+            jobname, rm_non_ascii=True, rm_dashs=True, rm_spaces=True, rm_punc=True
+        )
         sbatch_cmds = list()
         for n in range(n_jobs):
             sbatch_file = os.path.join(job_dir, "job_file_{}.sbatch".format(n))
             c_jobname = "{}_{}".format(jobname, n)
             out_log = os.path.join(log_dir, "{}_log.out".format(c_jobname))
             err_log = os.path.join(log_dir, "{}_log.err".format(c_jobname))
-            with open(sbatch_file, 'w') as sbatch_file_obj:
+            with open(sbatch_file, "w") as sbatch_file_obj:
                 sbatch_file_obj.write("#!/bin/bash --login\n")
                 sbatch_file_obj.write("\n")
                 if account_name is not None:
@@ -973,12 +1198,18 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                 sbatch_file_obj.write("#SBATCH --error={}.%J\n".format(err_log))
                 sbatch_file_obj.write("#SBATCH --time={}\n".format(job_time_limit))
                 sbatch_file_obj.write("#SBATCH --ntasks={}\n".format(n_cores_per_job))
-                sbatch_file_obj.write("#SBATCH --mem-per-cpu={}\n".format(mem_per_core_mb))
+                sbatch_file_obj.write(
+                    "#SBATCH --mem-per-cpu={}\n".format(mem_per_core_mb)
+                )
                 if module_load is not None:
                     sbatch_file_obj.write("\n")
                     sbatch_file_obj.write("{}\n".format(module_load))
                 sbatch_file_obj.write("\n")
-                sbatch_file_obj.write("parallel -N 1 --delay .2 -j $SLURM_NTASKS < {}\n\n".format(cmds_sh_file))
+                sbatch_file_obj.write(
+                    "parallel -N 1 --delay .2 -j $SLURM_NTASKS < {}\n\n".format(
+                        cmds_sh_file
+                    )
+                )
                 sbatch_cmds.append("sbatch {}".format(sbatch_file))
 
         pbpt_utils.writeList2File(sbatch_cmds, run_script)
@@ -1004,32 +1235,35 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
     def run_check_outputs(self):
         """
-        A function which runs to check the outputs of the processing have been successfully completed.
-        This function is executed when the user provides the --check option on the terminal.
-        This function will by default output two files:
+        A function which runs to check the outputs of the processing have been
+        successfully completed. This function is executed when the user provides the
+        --check option on the terminal. This function will by default output two files:
 
          * processing_errs_scns_yyyymmdd.txt
          * non_complete_errs_yyyymmdd.txt
 
-        To change the output file names you will probably want to create your own version of this function
-        calling the self.check_job_outputs function.
+        To change the output file names you will probably want to create your own
+        version of this function calling the self.check_job_outputs function.
 
         """
         time_sample_str = self.generate_readable_timestamp_str()
-        out_err_pid_file = 'processing_errs_scns_{}.txt'.format(time_sample_str)
-        out_err_info_file = 'non_complete_errs_{}.txt'.format(time_sample_str)
+        out_err_pid_file = "processing_errs_scns_{}.txt".format(time_sample_str)
+        out_err_info_file = "non_complete_errs_{}.txt".format(time_sample_str)
         self.check_job_outputs(out_err_pid_file, out_err_info_file)
 
     def run_remove_outputs(self, all_jobs=False, error_jobs=False):
         """
-        A function which removes the system output files, resetting the jobs to be rerun.
-        This function is executed when the user provides the --rmouts option (with either --all or --error).
+        A function which removes the system output files, resetting the jobs to
+        be rerun. This function is executed when the user provides the --rmouts
+        option (with either --all or --error).
 
-        If you want some different functionality then you may want to create your own version of this function.
+        If you want some different functionality then you may want to create your
+        own version of this function.
 
-        :param all_jobs: remove the outputs for all jobs regardless of whether they have successfully completed or not.
-        :param error_jobs: only remove the outputs (which may or may not be present) from jobs which have resulted in
-                           an error.
+        :param all_jobs: remove the outputs for all jobs regardless of whether they
+                         have successfully completed or not.
+        :param error_jobs: only remove the outputs (which may or may not be present)
+                           from jobs which have resulted in an error.
 
         """
         self.remove_job_outputs(all_jobs, error_jobs)
@@ -1043,13 +1277,50 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
         """
         parser = argparse.ArgumentParser()
-        parser.add_argument("--gen", action='store_true', default=False, help="Execute run_gen_commands() function.")
-        parser.add_argument("--check", action='store_true', default=False, help="Execute run_check_outputs() function.")
-        parser.add_argument("--report", action='store_true', default=False, help="Execute create_jobs_report() function.")
-        parser.add_argument("--rmouts", action='store_true', default=False, help="Execute run_remove_outputs() function.")
-        parser.add_argument("--all", action='store_true', default=False, help="Remove outputs for all jobs.")
-        parser.add_argument("--error", action='store_true', default=False, help="Remove outputs for jobs with errors.")
-        parser.add_argument("-o", "--output", type=str, required=False, help="Specify a report output JSON file. If not provided then report written to console.")
+        parser.add_argument(
+            "--gen",
+            action="store_true",
+            default=False,
+            help="Execute run_gen_commands() function.",
+        )
+        parser.add_argument(
+            "--check",
+            action="store_true",
+            default=False,
+            help="Execute run_check_outputs() function.",
+        )
+        parser.add_argument(
+            "--report",
+            action="store_true",
+            default=False,
+            help="Execute create_jobs_report() function.",
+        )
+        parser.add_argument(
+            "--rmouts",
+            action="store_true",
+            default=False,
+            help="Execute run_remove_outputs() function.",
+        )
+        parser.add_argument(
+            "--all",
+            action="store_true",
+            default=False,
+            help="Remove outputs for all jobs.",
+        )
+        parser.add_argument(
+            "--error",
+            action="store_true",
+            default=False,
+            help="Remove outputs for jobs with errors.",
+        )
+        parser.add_argument(
+            "-o",
+            "--output",
+            type=str,
+            required=False,
+            help="Specify a report output JSON file. If not provided "
+            "then report written to console.",
+        )
         if argv is None:
             argv = sys.argv[1:]
         args = parser.parse_args(argv)
@@ -1062,4 +1333,3 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             self.create_jobs_report(args.output)
         elif args.rmouts:
             self.run_remove_outputs(all_jobs=args.all, error_jobs=args.error)
-

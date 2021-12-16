@@ -40,12 +40,14 @@ import logging.config
 import json
 
 PB_PROCESS_TOOLS_VERSION_MAJOR = 2
-PB_PROCESS_TOOLS_VERSION_MINOR = 0
-PB_PROCESS_TOOLS_VERSION_PATCH = 4
+PB_PROCESS_TOOLS_VERSION_MINOR = 1
+PB_PROCESS_TOOLS_VERSION_PATCH = 0
 
-PB_PROCESS_TOOLS_VERSION = "{}.{}.{}".format(PB_PROCESS_TOOLS_VERSION_MAJOR,
-                                             PB_PROCESS_TOOLS_VERSION_MINOR,
-                                             PB_PROCESS_TOOLS_VERSION_PATCH)
+PB_PROCESS_TOOLS_VERSION = "{}.{}.{}".format(
+    PB_PROCESS_TOOLS_VERSION_MAJOR,
+    PB_PROCESS_TOOLS_VERSION_MINOR,
+    PB_PROCESS_TOOLS_VERSION_PATCH,
+)
 PB_PROCESS_TOOLS_VERSION_OBJ = LooseVersion(PB_PROCESS_TOOLS_VERSION)
 
 py_sys_version = sys.version_info
@@ -57,26 +59,31 @@ PB_PROCESS_TOOLS_COPYRIGHT_NAMES = "Pete Bunting"
 
 PB_PROCESS_TOOLS_SUPPORT_EMAIL = "rsgislib-support@googlegroups.com"
 
-pbpt_log_level = os.getenv('PBTP_LOG_LVL', 'INFO')
+pbpt_log_level = os.getenv("PBTP_LOG_LVL", "INFO")
 
-log_default_level=logging.INFO
-if pbpt_log_level.upper() == 'INFO':
+log_default_level = logging.INFO
+if pbpt_log_level.upper() == "INFO":
     log_default_level = logging.INFO
-elif pbpt_log_level.upper() == 'DEBUG':
+elif pbpt_log_level.upper() == "DEBUG":
     log_default_level = logging.DEBUG
-elif pbpt_log_level.upper() == 'WARNING':
+elif pbpt_log_level.upper() == "WARNING":
     log_default_level = logging.WARNING
-elif pbpt_log_level.upper() == 'ERROR':
+elif pbpt_log_level.upper() == "ERROR":
     log_default_level = logging.ERROR
-elif pbpt_log_level.upper() == 'CRITICAL':
+elif pbpt_log_level.upper() == "CRITICAL":
     log_default_level = logging.CRITICAL
 else:
-    raise Exception("Logging level specified ('{}') is not recognised.".format(pbpt_log_level))
+    raise Exception(
+        "Logging level specified ('{}') is not recognised.".format(pbpt_log_level)
+    )
 
-log_config_path = os.getenv('PBPT_LOG_CFG', None)
+log_config_path = os.getenv("PBPT_LOG_CFG", None)
 if (log_config_path is not None) and os.path.exists(log_config_path):
-    with open(log_config_path, 'rt') as f:
+    with open(log_config_path, "rt") as f:
         config = json.load(f)
     logging.config.dictConfig(config)
 else:
-    logging.basicConfig(level=log_default_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=log_default_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )

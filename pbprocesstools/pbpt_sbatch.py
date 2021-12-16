@@ -70,27 +70,28 @@ def get_single_sbatch(config_file, out_cmd, output_sbatch_file, custom_template)
         search_path, template_name = os.path.split(custom_template)
         template_loader = jinja2.FileSystemLoader(searchpath=search_path)
     else:
-        template_loader = jinja2.PackageLoader('pbprocesstools')
+        template_loader = jinja2.PackageLoader("pbprocesstools")
         if send_email and specify_cores_per_node:
-            template_name = 'sbatchsub_basic_nnodes_email.jinja2'
+            template_name = "sbatchsub_basic_nnodes_email.jinja2"
         elif send_email:
-            template_name = 'sbatchsub_basic_email.jinja2'
+            template_name = "sbatchsub_basic_email.jinja2"
         elif specify_cores_per_node:
-            template_name = 'sbatchsub_basic_nnodes.jinja2'
+            template_name = "sbatchsub_basic_nnodes.jinja2"
         else:
-            template_name = 'sbatchsub_basic.jinja2'
+            template_name = "sbatchsub_basic.jinja2"
 
     template_env = jinja2.Environment(loader=template_loader)
     template = template_env.get_template(template_name)
 
-    vals_dict['cmd'] = out_cmd
+    vals_dict["cmd"] = out_cmd
 
     output_text = template.render(vals_dict)
 
-    with open(output_sbatch_file, 'w') as out_file:
-        out_file.write(output_text + '\n')
+    with open(output_sbatch_file, "w") as out_file:
+        out_file.write(output_text + "\n")
         out_file.flush()
         out_file.close()
+
 
 def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file, prepend_cmd):
     """
@@ -112,8 +113,14 @@ def create_srun_gnuparallel_cmds_file(input_file, out_cmds_file, prepend_cmd):
     pbpt_txt_utils.writeList2File(out_cmds_lst, out_cmds_file)
 
 
-def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file,
-                                  custom_template, prepend_cmd):
+def get_gnuparallel_single_sbatch(
+    config_file,
+    input_file,
+    out_cmds_file,
+    output_sbatch_file,
+    custom_template,
+    prepend_cmd,
+):
     """
     A function which generates an sbatch submission script where a list of commands
     will be executed using GNU Parallel.
@@ -145,31 +152,37 @@ def get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output
         search_path, template_name = os.path.split(custom_template)
         template_loader = jinja2.FileSystemLoader(searchpath=search_path)
     else:
-        template_loader = jinja2.PackageLoader('pbprocesstools')
+        template_loader = jinja2.PackageLoader("pbprocesstools")
         if send_email and specify_cores_per_node:
-            template_name = 'sbatchsub_gnuparallel_nnodes_email.jinja2'
+            template_name = "sbatchsub_gnuparallel_nnodes_email.jinja2"
         elif send_email:
-            template_name = 'sbatchsub_gnuparallel_email.jinja2'
+            template_name = "sbatchsub_gnuparallel_email.jinja2"
         elif specify_cores_per_node:
-            template_name = 'sbatchsub_gnuparallel_nnodes.jinja2'
+            template_name = "sbatchsub_gnuparallel_nnodes.jinja2"
         else:
-            template_name = 'sbatchsub_gnuparallel.jinja2'
+            template_name = "sbatchsub_gnuparallel.jinja2"
 
     template_env = jinja2.Environment(loader=template_loader)
     template = template_env.get_template(template_name)
 
-    vals_dict['cmds_file'] = out_cmds_file
+    vals_dict["cmds_file"] = out_cmds_file
 
     output_text = template.render(vals_dict)
 
-    with open(output_sbatch_file, 'w') as out_file:
-        out_file.write(output_text + '\n')
+    with open(output_sbatch_file, "w") as out_file:
+        out_file.write(output_text + "\n")
         out_file.flush()
         out_file.close()
 
 
-def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file, output_base_file,
-                                 custom_template, prepend_cmd):
+def get_gnuparallel_multi_sbatch(
+    config_file,
+    input_file_lst,
+    out_cmds_base_file,
+    output_base_file,
+    custom_template,
+    prepend_cmd,
+):
     """
     A function which iterates through a list of files creating output files to
     be executed using sbatch.
@@ -187,13 +200,21 @@ def get_gnuparallel_multi_sbatch(config_file, input_file_lst, out_cmds_base_file
     sbatch_cmds = []
     i = 1
     for input_file in input_file_lst:
-        out_cmds_file = '{0}_{1}{2}'.format(out_cmds_file_base, i, out_cmds_file_ext)
-        output_sbatch_file = '{0}_{1}{2}'.format(output_file_base, i, output_file_ext)
-        get_gnuparallel_single_sbatch(config_file, input_file, out_cmds_file, output_sbatch_file,
-                                      custom_template, prepend_cmd)
-        sbatch_cmds.append('sbatch {}'.format(output_sbatch_file))
+        out_cmds_file = "{0}_{1}{2}".format(out_cmds_file_base, i, out_cmds_file_ext)
+        output_sbatch_file = "{0}_{1}{2}".format(output_file_base, i, output_file_ext)
+        get_gnuparallel_single_sbatch(
+            config_file,
+            input_file,
+            out_cmds_file,
+            output_sbatch_file,
+            custom_template,
+            prepend_cmd,
+        )
+        sbatch_cmds.append("sbatch {}".format(output_sbatch_file))
         i = i + 1
 
-    output_sbatch_file = '{0}_{1}{2}'.format(output_file_base, 'runall', output_file_ext)
+    output_sbatch_file = "{0}_{1}{2}".format(
+        output_file_base, "runall", output_file_ext
+    )
     pbpt_txt_utils = pbprocesstools.pbpt_utils.PBPTTextFileUtils()
     pbpt_txt_utils.writeList2File(sbatch_cmds, output_sbatch_file)

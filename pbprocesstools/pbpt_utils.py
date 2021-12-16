@@ -50,13 +50,15 @@ class PBPTGDALErrorHandler(object):
 
     def __init__(self):
         """
-        Init for PBPTGDALErrorHandler. Class attributes are err_level, err_no and err_msg
+        Init for PBPTGDALErrorHandler. Class attributes are err_level,
+        err_no and err_msg
 
         """
         from osgeo import gdal
+
         self.err_level = gdal.CE_None
         self.err_no = 0
-        self.err_msg = ''
+        self.err_msg = ""
 
     def handler(self, err_level, err_no, err_msg):
         """
@@ -73,8 +75,9 @@ class PBPTGDALErrorHandler(object):
 
 
 class PBPTUtils(object):
-
-    def get_file_lock(self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600):
+    def get_file_lock(
+        self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600
+    ):
         """
         A function which gets a lock on a file.
 
@@ -100,7 +103,7 @@ class PBPTUtils(object):
         lock_file_path = os.path.join(file_path, lock_file_name)
 
         got_lock = False
-        for i in range(wait_iters+1):
+        for i in range(wait_iters + 1):
             if not os.path.exists(lock_file_path):
                 got_lock = True
                 break
@@ -108,8 +111,8 @@ class PBPTUtils(object):
 
         if got_lock:
             c_datetime = datetime.datetime.now()
-            f = open(lock_file_path, 'w')
-            f.write('{}\n'.format(c_datetime.isoformat()))
+            f = open(lock_file_path, "w")
+            f.write("{}\n".format(c_datetime.isoformat()))
             f.flush()
             f.close()
         elif use_except:
@@ -174,7 +177,7 @@ class PBPTUtils(object):
         txtStr = ""
         try:
             if os.path.exists(file):
-                dataFile = open(file, 'r')
+                dataFile = open(file, "r")
                 for line in dataFile:
                     txtStr += line.strip()
                 dataFile.close()
@@ -193,7 +196,7 @@ class PBPTUtils(object):
         """
         outList = []
         try:
-            dataFile = open(file, 'r')
+            dataFile = open(file, "r")
             for line in dataFile:
                 line = line.strip()
                 if line != "":
@@ -212,9 +215,9 @@ class PBPTUtils(object):
 
         """
         try:
-            f = open(outFile, 'w')
+            f = open(outFile, "w")
             for item in dataList:
-               f.write(str(item)+'\n')
+                f.write(str(item) + "\n")
             f.flush()
             f.close()
         except Exception as e:
@@ -230,8 +233,8 @@ class PBPTUtils(object):
 
         """
         try:
-            f = open(out_file, 'w')
-            f.write(str(data_val)+'\n')
+            f = open(out_file, "w")
+            f.write(str(data_val) + "\n")
             f.flush()
             f.close()
         except Exception as e:
@@ -246,8 +249,16 @@ class PBPTUtils(object):
 
         """
         import json
-        with open(out_file, 'w') as fp:
-            json.dump(data_dict, fp, sort_keys=True, indent=4, separators=(',', ': '), ensure_ascii=False)
+
+        with open(out_file, "w") as fp:
+            json.dump(
+                data_dict,
+                fp,
+                sort_keys=True,
+                indent=4,
+                separators=(",", ": "),
+                ensure_ascii=False,
+            )
 
     def readJSON2Dict(self, input_file):
         """
@@ -257,11 +268,19 @@ class PBPTUtils(object):
 
         """
         import json
+
         with open(input_file) as f:
             data = json.load(f)
         return data
 
-    def check_str(self, str_val, rm_non_ascii=False, rm_dashs=False, rm_spaces=False, rm_punc=False):
+    def check_str(
+        self,
+        str_val,
+        rm_non_ascii=False,
+        rm_dashs=False,
+        rm_spaces=False,
+        rm_punc=False,
+    ):
         """
         A function which can check a string removing spaces (replaced with underscores),
         remove punctuation and any non ascii characters.
@@ -275,27 +294,32 @@ class PBPTUtils(object):
 
         """
         import string
+
         str_val_tmp = str_val.strip()
 
         if rm_non_ascii:
             str_val_tmp_ascii = ""
             for c in str_val_tmp:
-                if (c in string.ascii_letters) or (c in string.punctuation) or (c == ' '):
+                if (
+                    (c in string.ascii_letters)
+                    or (c in string.punctuation)
+                    or (c == " ")
+                ):
                     str_val_tmp_ascii += c
             str_val_tmp = str_val_tmp_ascii
 
         if rm_dashs:
-            str_val_tmp = str_val_tmp.replace('-', '_')
-            str_val_tmp = self.remove_repeated_chars(str_val_tmp, '_')
+            str_val_tmp = str_val_tmp.replace("-", "_")
+            str_val_tmp = self.remove_repeated_chars(str_val_tmp, "_")
 
         if rm_spaces:
-            str_val_tmp = str_val_tmp.replace(' ', '_')
-            str_val_tmp = self.remove_repeated_chars(str_val_tmp, '_')
+            str_val_tmp = str_val_tmp.replace(" ", "_")
+            str_val_tmp = self.remove_repeated_chars(str_val_tmp, "_")
 
         if rm_punc:
             for punct in string.punctuation:
-                if (punct != '_') and (punct != '-'):
-                    str_val_tmp = str_val_tmp.replace(punct, '')
+                if (punct != "_") and (punct != "-"):
+                    str_val_tmp = str_val_tmp.replace(punct, "")
 
         return str_val_tmp
 
@@ -310,8 +334,8 @@ class PBPTUtils(object):
         """
         if len(repeat_char) != 1:
             raise Exception("The repeat character has multiple characters.")
-        out_str = ''
-        p = ''
+        out_str = ""
+        p = ""
         for c in str_val:
             if c == repeat_char:
                 if c != p:
@@ -330,13 +354,13 @@ class PBPTUtils(object):
 
         """
         import uuid
+
         randomStr = str(uuid.uuid4())
-        randomStr = randomStr.replace("-","")
+        randomStr = randomStr.replace("-", "")
         return randomStr[0:size]
 
 
 class PBPTTextFileUtils(object):
-
     def readTextFile2List(self, file):
         """
         Read a text file into a list where each line
@@ -346,7 +370,7 @@ class PBPTTextFileUtils(object):
         """
         out_list = []
         try:
-            dataFile = open(file, 'r')
+            dataFile = open(file, "r")
             for line in dataFile:
                 line = line.strip()
                 if line != "":
@@ -364,9 +388,9 @@ class PBPTTextFileUtils(object):
         :return:
         """
         try:
-            f = open(out_file, 'w')
+            f = open(out_file, "w")
             for item in data_list:
-                f.write(str(item) + '\n')
+                f.write(str(item) + "\n")
             f.flush()
             f.close()
         except Exception as e:
@@ -374,7 +398,6 @@ class PBPTTextFileUtils(object):
 
 
 class PBPTJSONParseHelper(object):
-
     def readGZIPJSON(self, file_path):
         """
         Function to read a gzipped JSON file returning the data structure produced
@@ -382,10 +405,10 @@ class PBPTJSONParseHelper(object):
         :return:
         """
         with gzip.GzipFile(file_path, "r") as fin:  # 4. gzip
-            json_bytes = fin.read()                 # 3. bytes (i.e. UTF-8)
+            json_bytes = fin.read()  # 3. bytes (i.e. UTF-8)
 
-        json_str = json_bytes.decode("utf-8")       # 2. string (i.e. JSON)
-        data = json.loads(json_str)                 # 1. data
+        json_str = json_bytes.decode("utf-8")  # 2. string (i.e. JSON)
+        data = json.loads(json_str)  # 1. data
         return data
 
     def writeGZIPJSON(self, data, file_path):
@@ -395,8 +418,8 @@ class PBPTJSONParseHelper(object):
         :param file_path:
         :return:
         """
-        json_str = json.dumps(data) + "\n"           # 1. string (i.e. JSON)
-        json_bytes = json_str.encode("utf-8")        # 2. bytes (i.e. UTF-8)
+        json_str = json.dumps(data) + "\n"  # 1. string (i.e. JSON)
+        json_bytes = json_str.encode("utf-8")  # 2. bytes (i.e. UTF-8)
 
         with gzip.GzipFile(file_path, "w") as fout:  # 3. gzip
             fout.write(json_bytes)
@@ -412,14 +435,13 @@ class PBPTJSONParseHelper(object):
         steps_str = ""
         path_exists = True
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
                 path_exists = False
                 break
         return path_exists
-
 
     def getValueDict(self, json_obj, tree_sequence):
         """
@@ -454,14 +476,16 @@ class PBPTJSONParseHelper(object):
         curr_json_obj = json_obj
         steps_str = ""
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
                 raise Exception("Could not find '{}'".format(steps_str))
         if valid_values is not None:
             if curr_json_obj not in valid_values:
-                raise Exception("'{}' is not within the list of valid values.".format(curr_json_obj))
+                raise Exception(
+                    "'{}' is not within the list of valid values.".format(curr_json_obj)
+                )
         return curr_json_obj
 
     def getBooleanValue(self, json_obj, tree_sequence):
@@ -474,7 +498,7 @@ class PBPTJSONParseHelper(object):
         curr_json_obj = json_obj
         steps_str = ""
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
@@ -496,7 +520,7 @@ class PBPTJSONParseHelper(object):
         curr_json_obj = json_obj
         steps_str = ""
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
@@ -518,13 +542,15 @@ class PBPTJSONParseHelper(object):
         curr_json_obj = json_obj
         steps_str = ""
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
                 raise Exception("Could not find '{}'".format(steps_str))
         try:
-            out_datetime_obj = datetime.datetime.strptime(curr_json_obj, date_time_format)
+            out_datetime_obj = datetime.datetime.strptime(
+                curr_json_obj, date_time_format
+            )
         except Exception as e:
             raise Exception(e)
         return out_datetime_obj
@@ -540,7 +566,7 @@ class PBPTJSONParseHelper(object):
         curr_json_obj = json_obj
         steps_str = ""
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
@@ -553,10 +579,14 @@ class PBPTJSONParseHelper(object):
                 if type(val).__name__ != "str":
                     raise Exception("'{}' is not of type string.".format(val))
                 if val not in valid_values:
-                    raise Exception("'{}' is not within the list of valid values.".format(val))
+                    raise Exception(
+                        "'{}' is not within the list of valid values.".format(val)
+                    )
         return curr_json_obj
 
-    def getNumericValue(self, json_obj, tree_sequence, valid_lower=None, valid_upper=None):
+    def getNumericValue(
+        self, json_obj, tree_sequence, valid_lower=None, valid_upper=None
+    ):
         """
         A function which retrieves a single numeric value from a JSON structure.
         :param valid_lower:
@@ -568,28 +598,38 @@ class PBPTJSONParseHelper(object):
         curr_json_obj = json_obj
         steps_str = ""
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
                 raise Exception("Could not find '{}'".format(steps_str))
 
-        if (type(curr_json_obj).__name__ == "int") or (type(curr_json_obj).__name__ == "float"):
+        if (type(curr_json_obj).__name__ == "int") or (
+            type(curr_json_obj).__name__ == "float"
+        ):
             out_value = curr_json_obj
         elif type(curr_json_obj).__name__ == "str":
             if curr_json_obj.isnumeric():
                 out_value = float(curr_json_obj)
             else:
-                raise Exception("The identified value is not numeric '{}'".format(steps_str))
+                raise Exception(
+                    "The identified value is not numeric '{}'".format(steps_str)
+                )
         else:
-            raise Exception("The identified value is not numeric '{}'".format(steps_str))
+            raise Exception(
+                "The identified value is not numeric '{}'".format(steps_str)
+            )
 
         if valid_lower is not None:
             if out_value < valid_lower:
-                raise Exception("'{}' is less than the defined valid range.".format(out_value))
+                raise Exception(
+                    "'{}' is less than the defined valid range.".format(out_value)
+                )
         if valid_upper is not None:
             if out_value > valid_upper:
-                raise Exception("'{}' is higher than the defined valid range.".format(out_value))
+                raise Exception(
+                    "'{}' is higher than the defined valid range.".format(out_value)
+                )
         return out_value
 
     def getListValue(self, json_obj, tree_sequence):
@@ -602,7 +642,7 @@ class PBPTJSONParseHelper(object):
         curr_json_obj = json_obj
         steps_str = ""
         for tree_step in tree_sequence:
-            steps_str = steps_str+":"+tree_step
+            steps_str = steps_str + ":" + tree_step
             if tree_step in curr_json_obj:
                 curr_json_obj = curr_json_obj[tree_step]
             else:
