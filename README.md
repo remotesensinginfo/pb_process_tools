@@ -1,5 +1,8 @@
 # PB Process Tools
 
+![example workflow](https://github.com/remotesensinginfo/pb_process_tools/actions/workflows/main.yml/badge.svg)
+
+
 Tools for batch processing large datasets, including generating slurm job submission scripts. These are a set of scripts I have put together to streamline my workflows.
 
 ## Example Configuration files
