@@ -254,7 +254,7 @@ class PBPTProcessToolsBase(ABC):
                 dict_params = False
                 file_type = "file"
                 if type(files_dict[filepath]) is dict:
-                    if type in files_dict[filepath]:
+                    if "type" in files_dict[filepath]:
                         file_type = files_dict[filepath]["type"].lower()
                         dict_params = True
                     else:
