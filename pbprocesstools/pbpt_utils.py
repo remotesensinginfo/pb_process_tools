@@ -41,39 +41,6 @@ import glob
 logger = logging.getLogger(__name__)
 
 
-class PBPTGDALErrorHandler(object):
-    """
-    A class representing a generic GDAL Error Handler which
-    can be used to pick up GDAL warnings rather than just
-    failure errors.
-    """
-
-    def __init__(self):
-        """
-        Init for PBPTGDALErrorHandler. Class attributes are err_level,
-        err_no and err_msg
-
-        """
-        from osgeo import gdal
-
-        self.err_level = gdal.CE_None
-        self.err_no = 0
-        self.err_msg = ""
-
-    def handler(self, err_level, err_no, err_msg):
-        """
-        The handler function which is called with the error information.
-
-        :param err_level: The level of the error
-        :param err_no: The error number
-        :param err_msg: The message (string) associated with the error.
-
-        """
-        self.err_level = err_level
-        self.err_no = err_no
-        self.err_msg = err_msg
-
-
 class PBPTUtils(object):
     def get_file_lock(
         self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600
