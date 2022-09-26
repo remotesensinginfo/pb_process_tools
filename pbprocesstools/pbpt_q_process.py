@@ -580,6 +580,7 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                         pbpt_utils.clean_file_locks(lck_file_dir, timeout=300)
                         break
             else:
+                job_info = None
                 db_conn_str = self.queue_db_info["db_conn_str"]
                 try:
                     logger.debug("Creating Database Engine and Session.")
@@ -609,6 +610,10 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                         )
                     )
                     logger.exception(e)
+
+                if job_info is None:
+                    raise Exception(f"No job was found does the "
+                                    f"specified job ({self.debug_job_id}) exist?")
 
                 self.job_pid = self.debug_job_id
                 self.params = job_info.JobParams
