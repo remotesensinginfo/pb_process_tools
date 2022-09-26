@@ -725,8 +725,8 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
 
     def check_job_outputs(
         self,
-        out_err_pid_file,
-        out_err_info_file,
+        out_err_pid_file=None,
+        out_err_info_file=None,
         process_tools_path=None,
         process_tools_mod=None,
         process_tools_cls=None,
@@ -738,10 +738,12 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         completed).
 
         :param out_err_pid_file: the output file name and path for the list of database
-                                 PIDs which have not been successfully processed.
+                                 PIDs which have not been successfully processed. If
+                                 None then will not be outputted.
         :param out_err_info_file: the output file name and path for the output error
                                   report from this function where processing might
-                                  not have fully completed.
+                                  not have fully completed. If None then will not be
+                                  outputted.
         :param process_tools_mod: the path containing the implementation of the
                                   PBPTProcessTool class used for the processing to
                                   be checked. If None then class value passed to
@@ -819,6 +821,9 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
                         n_errs = n_errs + 1
                         err_pids.append(job_info.PID)
                         err_info[job_info.PID] = errs_dict
+                        job_info.Error = True
+                        job_info.ErrorInfo = errs_dict
+                        ses.commit()
                     else:
                         job_info.Checked = True
                         ses.commit()
@@ -834,11 +839,19 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         ses.close()
 
         if len(err_pids) > 0:
-            pbpt_utils.writeList2File(err_pids, out_err_pid_file)
-            pbpt_utils.writeDict2JSON(err_info, out_err_info_file)
+            if out_err_pid_file is not None:
+                pbpt_utils.writeList2File(err_pids, out_err_pid_file)
+            if out_err_info_file is not None:
+                pbpt_utils.writeDict2JSON(err_info, out_err_info_file)
         else:
-            pathlib.Path(out_err_pid_file).touch()
-            pathlib.Path(out_err_info_file).touch()
+            if out_err_pid_file is not None:
+                pathlib.Path(out_err_pid_file).touch()
+            if out_err_info_file is not None:
+                pathlib.Path(out_err_info_file).touch()
+        if len(err_pids) > 0:
+            print("{} error".format(len(err_pids)))
+        else:
+            print("Checks complete and all")
 
     def remove_job_outputs(
         self,
@@ -1241,7 +1254,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         """
         pass
 
-    def run_check_outputs(self):
+    def run_check_outputs(self, out_files=False):
         """
         A function which runs to check the outputs of the processing have been
         successfully completed. This function is executed when the user provides the
@@ -1254,9 +1267,13 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         version of this function calling the self.check_job_outputs function.
 
         """
-        time_sample_str = self.generate_readable_timestamp_str()
-        out_err_pid_file = "processing_errs_scns_{}.txt".format(time_sample_str)
-        out_err_info_file = "non_complete_errs_{}.txt".format(time_sample_str)
+        if out_files:
+            time_sample_str = self.generate_readable_timestamp_str()
+            out_err_pid_file = "processing_errs_scns_{}.txt".format(time_sample_str)
+            out_err_info_file = "non_complete_errs_{}.txt".format(time_sample_str)
+        else:
+            out_err_pid_file = None
+            out_err_info_file = None
         self.check_job_outputs(out_err_pid_file, out_err_info_file)
 
     def run_remove_outputs(self, all_jobs=False, error_jobs=False):
@@ -1329,6 +1346,12 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             help="Specify a report output JSON file. If not provided "
             "then report written to console.",
         )
+        parser.add_argument(
+            "--chkoutfiles",
+            action="store_true",
+            default=False,
+            help="Produce output files when run --check for user information.",
+            )
         if argv is None:
             argv = sys.argv[1:]
         args = parser.parse_args(argv)
@@ -1336,7 +1359,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         if args.gen:
             self.run_gen_commands()
         elif args.check:
-            self.run_check_outputs()
+            self.run_check_outputs(out_files=args.chkoutfiles)
         elif args.report:
             self.create_jobs_report(args.output)
         elif args.rmouts:
