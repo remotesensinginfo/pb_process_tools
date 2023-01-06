@@ -33,25 +33,25 @@ See other source files for details
 # Version 1.0 - Created.
 
 import argparse
-import json
-import sys
-import pathlib
-import os
-import logging
 import datetime
-import tqdm
+import json
+import logging
+import os
+import pathlib
+import sys
 from abc import abstractmethod
-
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.engine import Engine
-from sqlalchemy import event
-import sqlalchemy
-from sqlalchemy.orm.attributes import flag_modified
 from sqlite3 import Connection as SQLite3Connection
 
-from pbprocesstools.pbpt_utils import PBPTUtils
-from pbprocesstools.pbpt_process import PBPTProcessToolsBase
+import sqlalchemy
+import tqdm
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm.attributes import flag_modified
+
 from pbprocesstools import py_sys_version_flt
+from pbprocesstools.pbpt_process import PBPTProcessToolsBase
+from pbprocesstools.pbpt_utils import PBPTUtils
 
 logger = logging.getLogger(__name__)
 
@@ -488,8 +488,8 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                        functions.
 
         """
-        import time
         import random
+        import time
 
         logger.debug("Starting to execute the 'std_run' function.")
         pbpt_utils = PBPTUtils()
@@ -612,8 +612,10 @@ class PBPTQProcessTool(PBPTProcessToolsBase):
                     logger.exception(e)
 
                 if job_info is None:
-                    raise Exception(f"No job was found does the "
-                                    f"specified job ({self.debug_job_id}) exist?")
+                    raise Exception(
+                        f"No job was found does the "
+                        f"specified job ({self.debug_job_id}) exist?"
+                    )
 
                 self.job_pid = self.debug_job_id
                 self.params = job_info.JobParams
@@ -730,7 +732,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         process_tools_path=None,
         process_tools_mod=None,
         process_tools_cls=None,
-        **kwargs
+        **kwargs,
     ):
         """
         A function which following the completion of all the processing for a job
@@ -860,7 +862,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         process_tools_path=None,
         process_tools_mod=None,
         process_tools_cls=None,
-        **kwargs
+        **kwargs,
     ):
         """
         A function which following the completion of all the processing for a job
@@ -1351,7 +1353,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
             action="store_true",
             default=False,
             help="Produce output files when run --check for user information.",
-            )
+        )
         if argv is None:
             argv = sys.argv[1:]
         args = parser.parse_args(argv)

@@ -32,12 +32,12 @@ See other source files for details
 # History:
 # Version 1.0 - Created.
 
-from distutils.version import LooseVersion
-import os
-import sys
+import json
 import logging
 import logging.config
-import json
+import os
+import sys
+from distutils.version import LooseVersion
 
 PB_PROCESS_TOOLS_VERSION_MAJOR = 3
 PB_PROCESS_TOOLS_VERSION_MINOR = 1

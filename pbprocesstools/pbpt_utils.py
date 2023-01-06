@@ -30,13 +30,13 @@ pb_process_tools - Setup/Update the system.
 # History:
 # Version 1.0 - Created.
 
-import logging
+import datetime
+import glob
 import gzip
 import json
-import datetime
+import logging
 import os
 import time
-import glob
 
 logger = logging.getLogger(__name__)
 

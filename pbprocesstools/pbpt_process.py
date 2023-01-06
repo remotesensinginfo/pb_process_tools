@@ -34,12 +34,13 @@ See other source files for details
 
 import argparse
 import json
-import sys
-import pathlib
 import os
+import pathlib
 import shutil
-import tqdm
+import sys
 from abc import ABC, abstractmethod
+
+import tqdm
 
 
 class PBPTProcessToolsBase(ABC):
@@ -316,30 +317,23 @@ class PBPTProcessToolsBase(ABC):
                         else:
                             timeout = 4
 
-                        file_ok = (
-                            rsgislib.tools.checkdatasets.run_check_gdal_image_file(
-                                filepath,
-                                check_bands=True,
-                                n_bands=n_bands,
-                                chk_proj=chk_proj,
-                                epsg_code=epsg_code,
-                                read_img=read_img,
-                                smpl_n_pxls=smpl_n_pxls,
-                                calc_chk_sum=calc_chk_sum,
-                                max_file_size=max_file_size,
-                                rm_err=False,
-                                print_err=False,
-                                timeout=timeout,
-                            )
+                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_image_file(
+                            filepath,
+                            check_bands=True,
+                            n_bands=n_bands,
+                            chk_proj=chk_proj,
+                            epsg_code=epsg_code,
+                            read_img=read_img,
+                            smpl_n_pxls=smpl_n_pxls,
+                            calc_chk_sum=calc_chk_sum,
+                            max_file_size=max_file_size,
+                            rm_err=False,
+                            print_err=False,
+                            timeout=timeout,
                         )
                     else:
-                        file_ok = (
-                            rsgislib.tools.checkdatasets.run_check_gdal_image_file(
-                                filepath,
-                                check_bands=True,
-                                rm_err=False,
-                                print_err=False,
-                            )
+                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_image_file(
+                            filepath, check_bands=True, rm_err=False, print_err=False,
                         )
                     if not file_ok:
                         files_present = False
@@ -377,23 +371,19 @@ class PBPTProcessToolsBase(ABC):
                             else:
                                 timeout = 4
 
-                        file_ok = (
-                            rsgislib.tools.checkdatasets.run_check_gdal_vector_file(
-                                filepath,
-                                chk_proj=chk_proj,
-                                epsg_code=epsg_code,
-                                max_file_size=max_file_size,
-                                rm_err=False,
-                                print_err=False,
-                                multi_file=False,
-                                timeout=timeout,
-                            )
+                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_vector_file(
+                            filepath,
+                            chk_proj=chk_proj,
+                            epsg_code=epsg_code,
+                            max_file_size=max_file_size,
+                            rm_err=False,
+                            print_err=False,
+                            multi_file=False,
+                            timeout=timeout,
                         )
                     else:
-                        file_ok = (
-                            rsgislib.tools.checkdatasets.run_check_gdal_vector_file(
-                                filepath, rm_err=False, print_err=False
-                            )
+                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_vector_file(
+                            filepath, rm_err=False, print_err=False
                         )
 
                     if not file_ok:
