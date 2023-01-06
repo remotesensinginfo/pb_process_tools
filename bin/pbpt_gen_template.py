@@ -83,7 +83,6 @@ if __name__ == "__main__":
 
 
 pbpt_gen_cmds_cls_slurm_sing_tmplt = """
-import glob
 import logging
 import os
 
@@ -150,7 +149,6 @@ if __name__ == "__main__":
 """
 
 pbpt_gen_cmds_cls_slurm_tmplt = """
-import glob
 import logging
 import os
 
@@ -217,7 +215,6 @@ if __name__ == "__main__":
 """
 
 pbpt_gen_cmds_cls_parallel_sing_tmplt = """
-import glob
 import logging
 import os
 
@@ -276,7 +273,6 @@ if __name__ == "__main__":
 """
 
 pbpt_gen_cmds_cls_parallel_tmplt = """
-import glob
 import logging
 import os
 
@@ -376,19 +372,19 @@ def gen_pb_process_tools_template(output_dir, dbfile, out_file_prefix="", use_sl
 
     if use_singularity and use_slurm:
         pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_slurm_sing_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=gen_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod, sing_cmd=sing_cmd)
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod, sing_cmd=sing_cmd)
     elif use_slurm:
         pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_slurm_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=gen_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod)
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod)
     elif use_singularity:
         pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_parallel_sing_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=gen_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod, sing_cmd=sing_cmd)
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod, sing_cmd=sing_cmd)
     else:
         pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_parallel_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=gen_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod)
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod)
 
     pbpt_process_cmd_code_tmplt_jj = jinja2.Template(pbpt_process_cmd_code_tmplt)
-    pbpt_process_cmd_code = pbpt_process_cmd_code_tmplt_jj.render(ana_py_file=gen_py_file_base)
+    pbpt_process_cmd_code = pbpt_process_cmd_code_tmplt_jj.render(ana_py_file=ana_py_file_base)
 
     if BLACK_AVAIL:
         pbpt_gen_cmds_cls_code = black.format_str(pbpt_gen_cmds_cls_code, mode=black.FileMode())
