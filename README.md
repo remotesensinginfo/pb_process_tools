@@ -20,4 +20,11 @@ if you want to install into another location using the --prefix option.
 pip install . --prefix=/to/install/path
 ``
 
+## Get Started ##
+
+Run the command line function to generate a set of template functions:
+
+``
+pbpt_gen_template.py --output /path/to/out/dir --dbfile path/to/db/config/file.txt
+``
 
