@@ -386,7 +386,7 @@ def gen_pb_process_tools_template(
         run_reset_errs_sh_file,
         run_check_sh_file,
     ]
-
+    
     for out_file in out_files:
         if os.path.exists(out_file) and (not overwrite):
             raise Exception(
