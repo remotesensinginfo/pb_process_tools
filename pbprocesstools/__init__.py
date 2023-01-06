@@ -41,7 +41,7 @@ import json
 
 PB_PROCESS_TOOLS_VERSION_MAJOR = 3
 PB_PROCESS_TOOLS_VERSION_MINOR = 1
-PB_PROCESS_TOOLS_VERSION_PATCH = 4
+PB_PROCESS_TOOLS_VERSION_PATCH = 5
 
 PB_PROCESS_TOOLS_VERSION = "{}.{}.{}".format(
     PB_PROCESS_TOOLS_VERSION_MAJOR,
@@ -49,6 +49,7 @@ PB_PROCESS_TOOLS_VERSION = "{}.{}.{}".format(
     PB_PROCESS_TOOLS_VERSION_PATCH,
 )
 PB_PROCESS_TOOLS_VERSION_OBJ = LooseVersion(PB_PROCESS_TOOLS_VERSION)
+__version__ = PB_PROCESS_TOOLS_VERSION
 
 py_sys_version = sys.version_info
 py_sys_version_str = "{}.{}".format(py_sys_version.major, py_sys_version.minor)

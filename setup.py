@@ -35,15 +35,18 @@ $ python setup.py install
 
 import setuptools
 import os
+import glob
+
+import pbprocesstools
 
 setuptools.setup(name='pb_process_tools',
-    version='3.1.4',
+    version=pbprocesstools.PB_PROCESS_TOOLS_VERSION,
     description='Tools for batch processing data, including on HPC cluster with slurm.',
     author='Pete Bunting',
     author_email='petebunting@mac.com',
     include_package_data=True,
+    scripts=glob.glob("bin/*.py"),
     packages=['pbprocesstools'],
-    package_dir={'pbprocesstools': 'pbprocesstools'},
     data_files=[(os.path.join('share','pbprocesstools'),
                 [os.path.join('share','loggingconfig.json')])],
     license='LICENSE.txt',
@@ -52,9 +55,8 @@ setuptools.setup(name='pb_process_tools',
     classifiers=['Intended Audience :: Developers',
                  'Operating System :: OS Independent',
                  'Programming Language :: Python :: 3',
-                 'Programming Language :: Python :: 3.5',
-                 'Programming Language :: Python :: 3.6',
                  'Programming Language :: Python :: 3.7',
                  'Programming Language :: Python :: 3.8',
                  'Programming Language :: Python :: 3.9',
-                 'Programming Language :: Python :: 3.10'])
+                 'Programming Language :: Python :: 3.10',
+                 'Programming Language :: Python :: 3.11'])
