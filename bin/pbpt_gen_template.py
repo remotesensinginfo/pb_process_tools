@@ -19,9 +19,11 @@
 
 import argparse
 import os
+
 import jinja2
 import rsgislib.tools.filetools
 import rsgislib.tools.utils
+
 BLACK_AVAIL = True
 try:
     import black
@@ -331,7 +333,15 @@ if __name__ == "__main__":
 """
 
 
-def gen_pb_process_tools_template(output_dir, dbfile, out_file_prefix="", use_slurm=False, singularity=False, singularity_paths=None):
+def gen_pb_process_tools_template(
+    output_dir,
+    dbfile,
+    out_file_prefix="",
+    use_slurm=False,
+    singularity=False,
+    singularity_paths=None,
+    overwrite=False,
+):
     if not os.path.exists(output_dir):
         raise Exception("Specified output directory does not exist.")
 
@@ -368,27 +378,67 @@ def gen_pb_process_tools_template(output_dir, dbfile, out_file_prefix="", use_sl
     run_reset_errs_sh_file = os.path.join(output_dir, run_reset_errs_sh_base)
     run_check_sh_file = os.path.join(output_dir, run_check_sh_base)
 
+    out_files = [
+        gen_py_file,
+        ana_py_file,
+        run_gen_sh_file,
+        run_report_sh_file,
+        run_reset_errs_sh_file,
+        run_check_sh_file,
+    ]
+
+    for out_file in out_files:
+        if os.path.exists(out_file) and (not overwrite):
+            raise Exception(
+                f"File already exists, select --overwrite if you "
+                f"wish to over write: {out_file}"
+            )
+        elif os.path.exists(out_file) and overwrite:
+            os.remove(out_file)
+
     py_cmd = f"{sing_cmd}python"
 
     if use_singularity and use_slurm:
         pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_slurm_sing_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod, sing_cmd=sing_cmd)
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(
+            ana_py_file=ana_py_file_base,
+            dbfile=dbfile,
+            ana_py_mod=ana_py_mod,
+            sing_cmd=sing_cmd,
+        )
     elif use_slurm:
         pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_slurm_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod)
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(
+            ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod
+        )
     elif use_singularity:
-        pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_parallel_sing_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod, sing_cmd=sing_cmd)
+        pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(
+            pbpt_gen_cmds_cls_parallel_sing_tmplt
+        )
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(
+            ana_py_file=ana_py_file_base,
+            dbfile=dbfile,
+            ana_py_mod=ana_py_mod,
+            sing_cmd=sing_cmd,
+        )
     else:
         pbpt_gen_cmds_cls_tmplt_jj = jinja2.Template(pbpt_gen_cmds_cls_parallel_tmplt)
-        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod)
+        pbpt_gen_cmds_cls_code = pbpt_gen_cmds_cls_tmplt_jj.render(
+            ana_py_file=ana_py_file_base, dbfile=dbfile, ana_py_mod=ana_py_mod
+        )
 
     pbpt_process_cmd_code_tmplt_jj = jinja2.Template(pbpt_process_cmd_code_tmplt)
-    pbpt_process_cmd_code = pbpt_process_cmd_code_tmplt_jj.render(ana_py_file=ana_py_file_base)
+    pbpt_process_cmd_code = pbpt_process_cmd_code_tmplt_jj.render(
+        ana_py_file=ana_py_file_base
+    )
 
     if BLACK_AVAIL:
-        pbpt_gen_cmds_cls_code = black.format_str(pbpt_gen_cmds_cls_code, mode=black.FileMode())
-        pbpt_process_cmd_code = black.format_str(pbpt_process_cmd_code, mode=black.FileMode())
+        pbpt_gen_cmds_cls_code = black.format_str(
+            pbpt_gen_cmds_cls_code, mode=black.FileMode()
+        )
+        pbpt_process_cmd_code = black.format_str(
+            pbpt_process_cmd_code, mode=black.FileMode()
+        )
 
     rsgislib.tools.utils.write_data_to_file(pbpt_gen_cmds_cls_code, gen_py_file)
     rsgislib.tools.utils.write_data_to_file(pbpt_process_cmd_code, ana_py_file)
@@ -404,6 +454,7 @@ def gen_pb_process_tools_template(output_dir, dbfile, out_file_prefix="", use_sl
 
     run_check_cmd = f"{py_cmd} {gen_py_file} --check"
     rsgislib.tools.utils.write_data_to_file(run_check_cmd, run_check_sh_file)
+
 
 if __name__ == "__main__":
 
@@ -424,34 +475,42 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="A path to a file with the database connection string",
-        )
+    )
     parser.add_argument(
-        "-p",
-        "--prefix",
-        type=str,
-        default="",
-        help="Prefix for the output files",
-        )
+        "-p", "--prefix", type=str, default="", help="Prefix for the output files",
+    )
     parser.add_argument(
         "--slurm",
-        action='store_true',
+        action="store_true",
         default=False,
         help="Setup template to use slurm",
-        )
+    )
     parser.add_argument(
-        "--singularity",
-        type=str,
-        help="Setup template to use singularity",
-        )
+        "--singularity", type=str, help="Setup template to use singularity",
+    )
     parser.add_argument(
         "--sing_paths",
         nargs="*",
         type=str,
         help="If using singularity then provide the paths "
-             "to be mounted (e.g., /home/user:/data)",
-        )
+        "to be mounted (e.g., /home/user:/data)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Overwrite files if they already exists",
+    )
 
     # Call the parser to parse the arguments.
     args = parser.parse_args()
 
-    gen_pb_process_tools_template(args.output, args.dbfile, out_file_prefix=args.prefix, use_slurm=args.slurm, singularity=args.singularity, singularity_paths=args.sing_paths)
+    gen_pb_process_tools_template(
+        args.output,
+        args.dbfile,
+        out_file_prefix=args.prefix,
+        use_slurm=args.slurm,
+        singularity=args.singularity,
+        singularity_paths=args.sing_paths,
+        overwrite=args.overwrite,
+    )
