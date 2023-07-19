@@ -1066,8 +1066,7 @@ class PBPTGenQProcessToolCmds(PBPTProcessToolsBase):
         logger.debug("Drop system table if within the existing database.")
         Base.metadata.drop_all(db_engine)
         logger.debug("Creating Database.")
-        Base.metadata.bind = db_engine
-        Base.metadata.create_all()
+        Base.metadata.create_all(bind=db_engine)
 
         logger.debug("Creating Database Session.")
         session_sqlalc = sqlalchemy.orm.sessionmaker(bind=db_engine)
