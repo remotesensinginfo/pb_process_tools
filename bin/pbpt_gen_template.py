@@ -332,6 +332,10 @@ logger = logging.getLogger(__name__)
 class GenCmds(PBPTGenQProcessToolCmds):
     def gen_command_info(self, **kwargs):
         print("** This function needs implementing! **")
+        
+        # Create output directory if it doesn't exist.
+        if not os.path.exists(kwargs["out_dir"]):
+            os.mkdir(kwargs["out_dir"])
 
         # Get the list of input images
         ref_imgs = glob.glob(kwargs["ref_imgs"])
