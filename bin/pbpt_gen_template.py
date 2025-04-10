@@ -87,6 +87,8 @@ if __name__ == "__main__":
 pbpt_gen_cmds_cls_slurm_sing_tmplt = """
 import logging
 import os
+import glob
+import rsgislib.tools.filetools
 
 from pbprocesstools.pbpt_q_process import PBPTGenQProcessToolCmds
 
@@ -100,20 +102,33 @@ class GenCmds(PBPTGenQProcessToolCmds):
         if not os.path.exists(kwargs["out_dir"]):
             os.mkdir(kwargs["out_dir"])
         
-        # You will probably have a loop here:
-        # Within the loop create a dict with the parameters for each
-        # job which will be added to the self.params list.
-        c_dict = dict()
-        c_dict["input1"] = ""
-        c_dict["input2"] = ""
-        c_dict["input3"] = ""
-        c_dict["output1"] = ""
-        self.params.append(c_dict)       
+        # Get the list of input images
+        ref_imgs = glob.glob(kwargs["ref_imgs"])
+        
+        # Loop through the reference images to create the jobs
+        for ref_img in ref_imgs:
+            # Get the basename of the input file to make the output file name
+            basename = rsgislib.tools.filetools.get_file_basename(ref_img)
+            
+            # Create the output file name
+            output_file = os.path.join(kwargs["out_dir"], f"{basename}.tif")
+            # Check if the output file exists.
+            if not os.path.exists(output_file):
+                # You will probably have a loop here:
+                # Within the loop create a dict with the parameters for each
+                # job which will be added to the self.params list.
+                c_dict = dict()
+                c_dict["input1"] = ""
+                c_dict["input2"] = ""
+                c_dict["input3"] = ""
+                c_dict["output1"] = ""
+                self.params.append(c_dict)       
     
     def run_gen_commands(self):
         # Could Pass info to gen_command_info function 
         # (e.g., input / output directories)
-        self.gen_command_info(out_dir="/path/to/outputs")
+        self.gen_command_info(ref_imgs="path/to/inputs/*.kea",
+                              out_dir="/path/to/outputs")
 
         self.pop_params_db()
         
