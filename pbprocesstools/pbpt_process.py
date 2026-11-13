@@ -222,6 +222,25 @@ class PBPTProcessToolsBase(ABC):
         if dir_path_obj.exists():
             shutil.rmtree(dir_path, ignore_errors=True)
 
+    def has_files(dir_path: str, recursive: bool = False) -> bool:
+        """
+        Check if the directory contains at least one file.
+
+        :param dir_path: Path to the directory to inspect.
+        :param recursive: If True, searches subdirectories as well.
+        :return: True if at least one file is found, False otherwise.
+        """
+        path = pathlib.Path(dir_path)
+
+        if not path.is_dir():
+            raise NotADirectoryError(f"The path '{dir_path}' is not a valid directory.")
+
+        # Use rglob for recursive search, or iterdir for top-level only
+        iterator = path.rglob('*') if recursive else path.iterdir()
+
+        # Returns True as soon as the first regular file is encountered
+        return any(item.is_file() for item in iterator)
+
     def check_files(self, files_dict):
         """
         A function which test whether the files listed are present and for some formats
