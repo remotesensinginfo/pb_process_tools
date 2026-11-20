@@ -2,46 +2,55 @@ Get Started
 ===========
 
 Install
---------
+-------
 
-Installation using pip::
-    
-    pip install pb-process-tools
+Install ``pb_process_tools`` (v4.0.0) with PostgreSQL driver support::
 
+    pip install ".[postgres]"
 
-Batch Processing Using a Queue
--------------------------------
+or from source::
 
-Using the ``PBPTQProcessTool`` and ``PBPTGenQProcessToolCmds`` abstract classes you can define classes for:
+    pip install .
 
-    * generating a set of tasks
-    * performing those tasks
-    * checking whether those tasks completed
-    * reporting on time take and any errors.
+Batch Processing Using a PostgreSQL Queue
+-----------------------------------------
 
-The job information is stored within an sqlite or postgresql database, using a JSON field is used to store a dictionary of the input parameters for each task.
+Using the ``PBPTQProcessTool`` and ``PBPTGenQProcessToolCmds`` abstract classes, you define:
 
-The first step is to create an implementation of the class which is going to do the data processing:
+* generating and managing a task's queue table in PostgreSQL (with per-task table isolation via ``db_table_name`` and optional ``db_schema``),
+* executing individual jobs concurrently across GNU Parallel workers or Slurm jobs / job arrays,
+* monitoring live queue status and inspecting errors,
+* verifying outputs in parallel and resetting or cleaning up jobs and queue tables.
 
-This python script has been saved in a file called ``perform_processing.py``::
+Because each workflow specifies its own ``db_table_name``, multiple workflows can run concurrently from the same PostgreSQL database without interfering with one another.
 
-    from pbprocesstools.pbpt_q_process import PBPTQProcessTool
+1. Define the Worker (``perform_processing.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Implement a subclass of ``PBPTQProcessTool``:
+
+.. code-block:: python
+
     import logging
     import random
     import time
 
+    from pbprocesstools.pbpt_q_process import PBPTQProcessTool
+
     logger = logging.getLogger(__name__)
 
-    class ProcessJob(PBPTQProcessTool):
 
+    class ProcessJob(PBPTQProcessTool):
         def __init__(self):
-            super().__init__(cmd_name='perform_processing.py', descript=None)
+            super().__init__(cmd_name="perform_processing.py", descript=None)
 
         def do_processing(self, **kwargs):
             logger.debug("Value: {}".format(self.params["value"]))
-            time.sleep(random.randint(1,10))
+            time.sleep(random.randint(1, 3))
             if self.params["value"] > 500:
-                raise Exception("Error value is greater than 500: {}".format(self.params["value"]))
+                raise RuntimeError(
+                    "Error value is greater than 500: {}".format(self.params["value"])
+                )
 
         def required_fields(self, **kwargs):
             return ["value"]
@@ -52,103 +61,111 @@ This python script has been saved in a file called ``perform_processing.py``::
         def remove_outputs(self, **kwargs):
             print("No outputs to remove")
 
+
     if __name__ == "__main__":
         ProcessJob().std_run()
 
-This class is a very simple class and performs very little work, just logging a value which has been passed to the class, sleeping for a period and if the input value is greater than 500 an exception is throw (to illustrate the systems error reporting). The following functions need implementing:
+The worker methods are:
 
-    * ``__init__`` - provide the name of the script so the help documentation is correct - not critical.
-    * ``do_processing`` - the function which performs the analysis
-    * ``required_fields`` - returns a list of the required input fields within the params dict.
-    * ``outputs_present`` - performs a test (if possible) to check whether the processing of the job has successfully completed. In this case, it just returns True as there are no outputs to check.
-    * ``remove_outputs`` - removes job outputs. This is usually used to reset a job which for some reason failed during processing.
+* ``__init__``: passes ``cmd_name`` (and optional ``descript``) to ``super().__init__``.
+* ``do_processing``: executes the task using parameters stored in ``self.params``.
+* ``required_fields``: lists the mandatory keys expected inside ``self.params``.
+* ``outputs_present``: verifies that expected output files exist/are valid and returns ``(bool, errors_dict)``. See ``self.check_files(...)`` for ``gdal_image``, ``gdal_vector``, ``hdf5``, ``filesize``, and ``file`` checks.
+* ``remove_outputs``: removes outputs produced by a job when running ``--rmouts`` or ``-j <PID> -r``.
 
-The second class which needs implementing generates the jobs (i.e., the inputs to the class above):
+2. Define the Queue Generator (``gen_process_cmds.py``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This python script has been saved in a file called ``gen_process_cmds.py``::
+Implement a subclass of ``PBPTGenQProcessToolCmds``. Provide the PostgreSQL connection via ``db_conn_file``, ``db_conn_str``, or the ``PBPT_DB_CONN_STR`` environment variable, and specify a unique ``db_table_name``:
 
-    from pbprocesstools.pbpt_q_process import PBPTGenQProcessToolCmds
-    import os.path
-    import logging
+.. code-block:: python
+
+    import os
     import random
 
-    logger = logging.getLogger(__name__)
+    from pbprocesstools.pbpt_q_process import PBPTGenQProcessToolCmds
+
 
     class CreateTestCmds(PBPTGenQProcessToolCmds):
-
         def gen_command_info(self, **kwargs):
-
-            for jobs in range(100):
-                c_dict = dict()
-                c_dict['value'] = random.randint(1, 1000)
-                self.params.append(c_dict)
+            for _ in range(100):
+                self.params.append({"value": random.randint(1, 1000)})
 
         def run_gen_commands(self):
             self.gen_command_info()
             self.pop_params_db()
-            self.create_shell_exe("exe_analysis.sh", "cmds.sh", 4, db_info_file=None)
+            self.create_shell_exe(
+                run_script="exe_analysis.sh",
+                cmds_sh_file="cmds.sh",
+                n_cores=4,
+                db_info_file="pbpt_lcl_db_info.json",
+            )
+
 
     if __name__ == "__main__":
-        py_script = os.path.abspath("perform_processing.py")
-        script_cmd = "python {}".format(py_script)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        py_script = os.path.join(script_dir, "perform_processing.py")
 
-        process_tools_mod = 'perform_processing'
-        process_tools_cls = 'ProcessJob'
-
-        create_tools = CreateTestCmds(cmd=script_cmd, sqlite_db_file="test_jobs.db",
-                                      process_tools_mod=process_tools_mod, process_tools_cls=process_tools_cls)
+        create_tools = CreateTestCmds(
+            cmd=f"python {py_script}",
+            db_conn_file="db_conn.txt",
+            process_tools_mod="perform_processing",
+            process_tools_cls="ProcessJob",
+            db_table_name="demo_test_jobs",
+            db_schema="public",
+        )
         create_tools.parse_cmds()
 
+You can also scaffold both scripts and wrapper shell scripts automatically using ``pbpt_gen_template.py``::
 
-This class generates the individual job parameters, in this case 100 jobs. The dict for each job has to be appended to the ``self.params`` list within the ``gen_command_info`` function. The ``run_gen_commands`` function needs to call the ``gen_command_info`` function but also specifies the output format (i.e., batch processing using GNU parallel on a local system or via slurm on a cluster). In this case it is via a GNU parallel and a shell script listing the commands.
+    pbpt_gen_template.py -o ./my_workflow -d db_conn.txt -t demo_test_jobs
 
-When the class ``CreateTestCmds`` is instantiated, the command to be executed for processing to occur (i.e., ``python perform_processing.py``) needs to be specified and the database file name and path is required.
+3. Run, Monitor, Check, and Clean Up
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To run the code to generate the database with the job information, execute the following command::
+Preview job generation without modifying the database or writing scripts::
+
+    python gen_process_cmds.py --gen --dry-run
+
+Populate the queue table and generate execution scripts::
 
     python gen_process_cmds.py --gen
 
-This should generate the database and an output script ``exe_analysis.sh`` (which simply contain the GNU Parallel command to execute), which is then executed::
+Run the generated commands (either GNU Parallel locally or ``sbatch`` scripts on Slurm)::
 
     sh exe_analysis.sh
 
-Your analysis should now be complete...
+Monitor live progress, throughput, and ETA::
 
-The next step is to check whether the analysis was successful, execute the following comamand::
+    python gen_process_cmds.py --status
+    python gen_process_cmds.py --watch --interval 5
 
-    python gen_process_cmds.py --check
+Append newly discovered jobs incrementally (skipping duplicates already in the queue)::
 
-Hopefully the reports files will be empty, but in this demo we have explicitly generated errors so there will be errors within these reports.
+    python gen_process_cmds.py --gen --append
 
-You can also generate a summary report which will include the python Exception trace and error message for jobs which have failed, execute the following command::
+Verify outputs in parallel across 8 threads::
 
-    python gen_process_cmds.py --report
+    python gen_process_cmds.py --check -w 8
 
-If you want the report outputted to a file run::
+Inspect errored or incomplete jobs directly from the CLI::
 
-    python gen_process_cmds.py --check -o report.json
+    python gen_process_cmds.py --errors --limit 10
+    python gen_process_cmds.py --inspect 20
 
-To remove outputs where an error occurred then you can use the following::
+Reset job state without deleting outputs (``--reset``), or delete outputs and reset state (``--rmouts``)::
 
+    python gen_process_cmds.py --reset --error
+    python gen_process_cmds.py --reset --pids 20 21
     python gen_process_cmds.py --rmouts --error
-    
-To remove outputs for all jobs then you can use the following::
 
-    python gen_process_cmds.py --rmouts --all
+Debug a single job directly with the worker script (runs without modifying the queue DB)::
 
-Where you have had an error occur it can be useful to run a single task in isolation without the database recording any information and any exception being returned to the console rather than captured. This can be performed by calling the processing python file. For example, to process job 20, run the following command::
+    python perform_processing.py --dbinfo pbpt_lcl_db_info.json -j 20 -p   # Print params
+    python perform_processing.py --dbinfo pbpt_lcl_db_info.json -j 20      # Run job 20
+    python perform_processing.py --dbinfo pbpt_lcl_db_info.json -j 20 -r   # Remove outputs
 
-    python perform_processing.py --dbinfo process_db_info.json -j 20
+Drop the task's queue table when finished, or clean leftover tables across the database::
 
-Where the ``--dbinfo`` input will have been generated and provides the database location and connection information. You're file name will be similar but with a different random set of characters at the end.
-
-You can remove the outputs for just one job using the following command::
-
-    python perform_processing.py --dbinfo process_db_info.json -j 20 -r
-
-You can also print the parameters for a job as well::
-
-    python perform_processing.py --dbinfo process_db_info.json -j 20 -p
-
-
-
+    python gen_process_cmds.py --drop -y
+    pbpt_clean_db.py -d db_conn.txt --all-schemas --drop --completed -y

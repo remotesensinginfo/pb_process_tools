@@ -32,15 +32,14 @@ See other source files for details
 # History:
 # Version 1.0 - Created.
 
-import argparse
-import json
+import glob
 import os
 import pathlib
 import shutil
-import sys
-from abc import ABC, abstractmethod
-
-import tqdm
+import string
+import uuid
+from abc import ABC
+from datetime import datetime
 
 
 class PBPTProcessToolsBase(ABC):
@@ -57,10 +56,7 @@ class PBPTProcessToolsBase(ABC):
         :return: string of length size.
 
         """
-        import uuid
-
-        randomStr = str(uuid.uuid4())
-        randomStr = randomStr.replace("-", "")
+        randomStr = str(uuid.uuid4()).replace("-", "")
         return randomStr[0:size]
 
     def generate_readable_timestamp_str(self):
@@ -71,8 +67,6 @@ class PBPTProcessToolsBase(ABC):
         :return: string.
 
         """
-        from datetime import datetime
-
         now_time = datetime.now()
         return now_time.strftime("%Y%m%d_%H%M%S")
 
@@ -89,16 +83,12 @@ class PBPTProcessToolsBase(ABC):
                  found or multiple paths are found.
 
         """
-        import glob
-        import os.path
-
-        # Test whether a string has been inputted. If a string has been
-        # provided then make it a list with one element.
         if isinstance(dir_path, str):
             dir_path = [dir_path]
 
+        files = []
         for c_dir_path in dir_path:
-            files = glob.glob(os.path.join(c_dir_path, file_search))
+            files = glob.glob(os.path.join(glob.escape(c_dir_path), file_search))
             if len(files) > 0:
                 break
 
@@ -116,27 +106,25 @@ class PBPTProcessToolsBase(ABC):
                         be within sub-directories within the base directory until a
                         file meeting the search criteria are met.
         :param file_search: The file search string in the file name and must contain
-                           a wild character (i.e., *).
+                           a wild character (i.e., ``*``).
         :param rtn_except: If True then an exception will be raised if no file or
                            multiple files are found (default). If False then None will
                            be returned rather than an exception raised.
         :return: The file found (or None if rtn_except=False)
 
         """
-        import glob
-
-        files = None
-        for root, dirs, files in os.walk(dir_path):
-            files = glob.glob(os.path.join(root, file_search))
-            if len(files) > 0:
+        matched_files = []
+        for root, dirs, _walk_files in os.walk(dir_path):
+            matched_files = glob.glob(os.path.join(glob.escape(root), file_search))
+            if len(matched_files) > 0:
                 break
         out_file = None
-        if (files is not None) and (len(files) == 1):
-            out_file = files[0]
+        if len(matched_files) == 1:
+            out_file = matched_files[0]
         elif rtn_except:
             raise Exception(
                 "Could not find a single file ({0}) in {1}; "
-                "found {2} files.".format(file_search, dir_path, len(files))
+                "found {2} files.".format(file_search, dir_path, len(matched_files))
             )
         return out_file
 
@@ -155,8 +143,6 @@ class PBPTProcessToolsBase(ABC):
         :return: basename for file
 
         """
-        import string
-
         basename = os.path.splitext(os.path.basename(file_path))[0]
         if check_valid:
             basename = basename.replace(" ", "_")
@@ -170,13 +156,7 @@ class PBPTProcessToolsBase(ABC):
                     "The number of components specified is more than "
                     "the number of components in the basename."
                 )
-            out_basename = ""
-            for i in range(n_comps):
-                if i == 0:
-                    out_basename = basename_split[i]
-                else:
-                    out_basename = out_basename + "_" + basename_split[i]
-            basename = out_basename
+            basename = "_".join(basename_split[:n_comps])
         return basename
 
     def create_dir(self, dir_path, use_abs_path=True, add_uid=False):
@@ -201,13 +181,13 @@ class PBPTProcessToolsBase(ABC):
             dir_path_obj = dir_path_obj.resolve()
 
         if add_uid:
-            last_dir_name = dir_path_obj.parent.name
+            last_dir_name = dir_path_obj.name
             last_dir_name_uid = "{}_{}".format(last_dir_name, self.uid)
-            dir_path_obj = dir_path_obj.parent.joinpath(pathlib.Path(last_dir_name_uid))
+            dir_path_obj = dir_path_obj.parent.joinpath(last_dir_name_uid)
 
         created = False
         if not dir_path_obj.exists():
-            dir_path_obj.mkdir()
+            dir_path_obj.mkdir(parents=True, exist_ok=True)
             created = True
         return str(dir_path_obj), created
 
@@ -222,6 +202,7 @@ class PBPTProcessToolsBase(ABC):
         if dir_path_obj.exists():
             shutil.rmtree(dir_path, ignore_errors=True)
 
+    @staticmethod
     def has_files(dir_path: str, recursive: bool = False) -> bool:
         """
         Check if the directory contains at least one file.
@@ -233,10 +214,12 @@ class PBPTProcessToolsBase(ABC):
         path = pathlib.Path(dir_path)
 
         if not path.is_dir():
-            raise NotADirectoryError(f"The path '{dir_path}' is not a valid directory.")
+            raise NotADirectoryError(
+                f"The path '{dir_path}' is not a valid directory."
+            )
 
         # Use rglob for recursive search, or iterdir for top-level only
-        iterator = path.rglob('*') if recursive else path.iterdir()
+        iterator = path.rglob("*") if recursive else path.iterdir()
 
         # Returns True as soon as the first regular file is encountered
         return any(item.is_file() for item in iterator)
@@ -266,24 +249,24 @@ class PBPTProcessToolsBase(ABC):
         """
         files_present = True
         errs_dict = dict()
-        for filepath in files_dict:
+        for filepath, file_spec in files_dict.items():
             if not os.path.exists(filepath):
                 files_present = False
                 errs_dict[filepath] = "Does not exist in file system."
             else:
                 dict_params = False
                 file_type = "file"
-                if type(files_dict[filepath]) is dict:
-                    if "type" in files_dict[filepath]:
-                        file_type = files_dict[filepath]["type"].lower()
+                if isinstance(file_spec, dict):
+                    if "type" in file_spec:
+                        file_type = file_spec["type"].lower()
                         dict_params = True
                     else:
                         raise Exception(
                             "If check_files provided dict of file info "
                             "to check then the key type must be provided."
                         )
-                elif type(files_dict[filepath]) is str:
-                    file_type = files_dict[filepath].lower()
+                elif isinstance(file_spec, str):
+                    file_type = file_spec.lower()
 
                 if file_type == "gdal_image":
                     try:
@@ -294,47 +277,14 @@ class PBPTProcessToolsBase(ABC):
                             "library must be present."
                         )
                     if dict_params:
-                        if "n_bands" in files_dict[filepath]:
-                            n_bands = files_dict[filepath]["n_bands"]
-                        else:
-                            n_bands = 0
-
-                        if "chk_proj" in files_dict[filepath]:
-                            chk_proj = files_dict[filepath]["chk_proj"]
-
-                            if "epsg_code" in files_dict[filepath]:
-                                epsg_code = files_dict[filepath]["epsg_code"]
-                            else:
-                                epsg_code = None
-                        else:
-                            chk_proj = False
-                            epsg_code = None
-
-                        if "read_img" in files_dict[filepath]:
-                            read_img = files_dict[filepath]["read_img"]
-
-                            if "smpl_n_pxls" in files_dict[filepath]:
-                                smpl_n_pxls = files_dict[filepath]["smpl_n_pxls"]
-                            else:
-                                smpl_n_pxls = 10
-                        else:
-                            read_img = False
-                            smpl_n_pxls = 10
-
-                        if "calc_chk_sum" in files_dict[filepath]:
-                            calc_chk_sum = files_dict[filepath]["calc_chk_sum"]
-                        else:
-                            calc_chk_sum = False
-
-                        if "max_file_size" in files_dict[filepath]:
-                            max_file_size = files_dict[filepath]["max_file_size"]
-                        else:
-                            max_file_size = None
-
-                        if "timeout" in files_dict[filepath]:
-                            timeout = files_dict[filepath]["timeout"]
-                        else:
-                            timeout = 4
+                        n_bands = file_spec.get("n_bands", 0)
+                        chk_proj = file_spec.get("chk_proj", False)
+                        epsg_code = file_spec.get("epsg_code") if chk_proj else None
+                        read_img = file_spec.get("read_img", False)
+                        smpl_n_pxls = file_spec.get("smpl_n_pxls", 10) if read_img else 10
+                        calc_chk_sum = file_spec.get("calc_chk_sum", False)
+                        max_file_size = file_spec.get("max_file_size", None)
+                        timeout = file_spec.get("timeout", 4)
 
                         file_ok = rsgislib.tools.checkdatasets.run_check_gdal_image_file(
                             filepath,
@@ -352,7 +302,10 @@ class PBPTProcessToolsBase(ABC):
                         )
                     else:
                         file_ok = rsgislib.tools.checkdatasets.run_check_gdal_image_file(
-                            filepath, check_bands=True, rm_err=False, print_err=False,
+                            filepath,
+                            check_bands=True,
+                            rm_err=False,
+                            print_err=False,
                         )
                     if not file_ok:
                         files_present = False
@@ -367,28 +320,10 @@ class PBPTProcessToolsBase(ABC):
                         )
 
                     if dict_params:
-                        if dict_params:
-
-                            if "chk_proj" in files_dict[filepath]:
-                                chk_proj = files_dict[filepath]["chk_proj"]
-
-                                if "epsg_code" in files_dict[filepath]:
-                                    epsg_code = files_dict[filepath]["epsg_code"]
-                                else:
-                                    epsg_code = None
-                            else:
-                                chk_proj = False
-                                epsg_code = None
-
-                            if "max_file_size" in files_dict[filepath]:
-                                max_file_size = files_dict[filepath]["max_file_size"]
-                            else:
-                                max_file_size = None
-
-                            if "timeout" in files_dict[filepath]:
-                                timeout = files_dict[filepath]["timeout"]
-                            else:
-                                timeout = 4
+                        chk_proj = file_spec.get("chk_proj", False)
+                        epsg_code = file_spec.get("epsg_code") if chk_proj else None
+                        max_file_size = file_spec.get("max_file_size", None)
+                        timeout = file_spec.get("timeout", 4)
 
                         file_ok = rsgislib.tools.checkdatasets.run_check_gdal_vector_file(
                             filepath,
@@ -417,29 +352,22 @@ class PBPTProcessToolsBase(ABC):
                             "library must be present."
                         )
 
-                    if dict_params:
-                        if "timeout" in files_dict[filepath]:
-                            timeout = files_dict[filepath]["timeout"]
-                        else:
-                            timeout = 4
-
-                        file_ok = rsgislib.tools.checkdatasets.run_check_hdf5_file(
-                            filepath, rm_err=False, print_err=False, timeout=timeout
-                        )
-                    else:
-                        file_ok = rsgislib.tools.checkdatasets.run_check_hdf5_file(
-                            filepath, rm_err=False, print_err=False, timeout=4
-                        )
+                    timeout = file_spec.get("timeout", 4) if dict_params else 4
+                    file_ok = rsgislib.tools.checkdatasets.run_check_hdf5_file(
+                        filepath, rm_err=False, print_err=False, timeout=timeout
+                    )
                     if not file_ok:
                         files_present = False
                         errs_dict[filepath] = f"Error with HDF5 File: {filepath}"
                 elif file_type == "filesize":
-                    file_ok = False
-                    err_str = ""
-                    file_size = os.stat(filepath).st_size
-                    if not (file_size > 0):
+                    if not os.path.isfile(filepath):
                         files_present = False
-                        errs_dict[filepath] = "File does not have a file size > 0."
+                        errs_dict[filepath] = "Path is not a regular file."
+                    else:
+                        file_size = os.stat(filepath).st_size
+                        if not (file_size > 0):
+                            files_present = False
+                            errs_dict[filepath] = "File does not have a file size > 0."
                 # Else: just ignore, no test being undertaken - i.e., being present
                 # is enough...
         return files_present, errs_dict

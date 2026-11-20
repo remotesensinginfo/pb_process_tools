@@ -36,7 +36,9 @@ import gzip
 import json
 import logging
 import os
+import string
 import time
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,7 @@ class PBPTUtils(object):
         self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600
     ):
         """
-        A function which gets a lock on a file.
+        A function which gets a lock on a file using atomic file creation.
 
         The lock file will be a unix hidden file (i.e., starts with a .) and it will have .lok added to the end.
         E.g., for input file hello_world.txt the lock file will be .hello_world.txt.lok. The contents of the lock
@@ -66,27 +68,30 @@ class PBPTUtils(object):
 
         """
         file_path, file_name = os.path.split(input_file)
+        dir_path = file_path if file_path else "."
         lock_file_name = ".{}.lok".format(file_name)
-        lock_file_path = os.path.join(file_path, lock_file_name)
+        lock_file_path = os.path.join(dir_path, lock_file_name)
 
         got_lock = False
-        for i in range(wait_iters + 1):
-            if not os.path.exists(lock_file_path):
+        for _ in range(wait_iters + 1):
+            try:
+                fd = os.open(
+                    lock_file_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644
+                )
+                try:
+                    c_datetime = datetime.datetime.now()
+                    os.write(fd, "{}\n".format(c_datetime.isoformat()).encode("utf-8"))
+                finally:
+                    os.close(fd)
                 got_lock = True
                 break
-            time.sleep(sleep_period)
+            except FileExistsError:
+                time.sleep(sleep_period)
 
-        if got_lock:
-            c_datetime = datetime.datetime.now()
-            f = open(lock_file_path, "w")
-            f.write("{}\n".format(c_datetime.isoformat()))
-            f.flush()
-            f.close()
-        elif use_except:
-            self.clean_file_locks(file_path, timeout)
-            raise Exception("Lock could not be gained for file: {}".format(input_file))
-        else:
-            self.clean_file_locks(file_path, timeout)
+        if not got_lock:
+            self.clean_file_locks(dir_path, timeout)
+            if use_except:
+                raise Exception("Lock could not be gained for file: {}".format(input_file))
 
         return got_lock
 
@@ -94,21 +99,24 @@ class PBPTUtils(object):
         """
         A function which releases a lock file for the input file. If for some reason
         removing the lock file fails then the clean_file_locks is called and the timeout
-        variable will be called.
+        variable will be used.
 
         :param input_file: The input file for which the lock will be created.
         :param timeout: the time (in seconds) for the timeout. Default: 3600 (1 hours).
 
         """
         file_path, file_name = os.path.split(input_file)
+        dir_path = file_path if file_path else "."
         lock_file_name = ".{}.lok".format(file_name)
-        lock_file_path = os.path.join(file_path, lock_file_name)
+        lock_file_path = os.path.join(dir_path, lock_file_name)
         if os.path.exists(lock_file_path):
             try:
                 os.remove(lock_file_path)
-            except:
+            except FileNotFoundError:
+                pass
+            except OSError:
                 logger.debug("Failed to remove lock file so calling clean_file_locks.")
-                self.clean_file_locks(file_path, timeout)
+                self.clean_file_locks(dir_path, timeout)
 
     def clean_file_locks(self, dir_path, timeout=3600):
         """
@@ -119,18 +127,23 @@ class PBPTUtils(object):
         :param timeout: the time (in seconds) for the timeout. Default: 3600 (1 hours)
 
         """
-        c_dateime = datetime.datetime.now()
-        lock_files = glob.glob(os.path.join(dir_path, ".*.lok"))
+        if not dir_path:
+            dir_path = "."
+        c_datetime = datetime.datetime.now()
+        lock_files = glob.glob(os.path.join(glob.escape(dir_path), ".*.lok"))
         for lock_file_path in lock_files:
-            create_date_str = self.readTextFileNoNewLines(lock_file_path)
-            create_date_str = create_date_str.strip()
-            if create_date_str != "":
-                create_date = datetime.datetime.fromisoformat(create_date_str)
-                time_since_create = (c_dateime - create_date).total_seconds()
-                if time_since_create > timeout:
+            try:
+                with open(lock_file_path, "r") as f:
+                    create_date_str = f.read().strip()
+                if create_date_str != "":
+                    create_date = datetime.datetime.fromisoformat(create_date_str)
+                    time_since_create = (c_datetime - create_date).total_seconds()
+                    if time_since_create > timeout:
+                        os.remove(lock_file_path)
+                else:
                     os.remove(lock_file_path)
-            else:
-                os.remove(lock_file_path)
+            except (FileNotFoundError, ValueError, OSError):
+                continue
 
     def readTextFileNoNewLines(self, file):
         """
@@ -141,15 +154,12 @@ class PBPTUtils(object):
         :return: string
 
         """
+        if not os.path.exists(file):
+            raise FileNotFoundError("File does not exist: '{}'".format(file))
         txtStr = ""
-        try:
-            if os.path.exists(file):
-                dataFile = open(file, "r")
-                for line in dataFile:
-                    txtStr += line.strip()
-                dataFile.close()
-        except Exception as e:
-            raise e
+        with open(file, "r") as dataFile:
+            for line in dataFile:
+                txtStr += line.strip()
         return txtStr
 
     def readTextFile2List(self, file):
@@ -162,15 +172,11 @@ class PBPTUtils(object):
 
         """
         outList = []
-        try:
-            dataFile = open(file, "r")
+        with open(file, "r") as dataFile:
             for line in dataFile:
                 line = line.strip()
                 if line != "":
                     outList.append(line)
-            dataFile.close()
-        except Exception as e:
-            raise e
         return outList
 
     def writeList2File(self, dataList, outFile):
@@ -178,17 +184,12 @@ class PBPTUtils(object):
         Write a list a text file, one line per item.
 
         :param dataList: List of values to be written to the output file.
-        :param out_file: File path to the output file.
+        :param outFile: File path to the output file.
 
         """
-        try:
-            f = open(outFile, "w")
+        with open(outFile, "w") as f:
             for item in dataList:
                 f.write(str(item) + "\n")
-            f.flush()
-            f.close()
-        except Exception as e:
-            raise e
 
     def writeData2File(self, data_val, out_file):
         """
@@ -199,13 +200,8 @@ class PBPTUtils(object):
         :param out_file: File path to the output file.
 
         """
-        try:
-            f = open(out_file, "w")
+        with open(out_file, "w") as f:
             f.write(str(data_val) + "\n")
-            f.flush()
-            f.close()
-        except Exception as e:
-            raise e
 
     def writeDict2JSON(self, data_dict, out_file):
         """
@@ -215,8 +211,6 @@ class PBPTUtils(object):
         :param out_file: The file path to the output file.
 
         """
-        import json
-
         with open(out_file, "w") as fp:
             json.dump(
                 data_dict,
@@ -234,8 +228,6 @@ class PBPTUtils(object):
         :param input_file: input JSON file path.
 
         """
-        import json
-
         with open(input_file) as f:
             data = json.load(f)
         return data
@@ -260,20 +252,11 @@ class PBPTUtils(object):
         :return: returns a string outputted from the processing.
 
         """
-        import string
-
         str_val_tmp = str_val.strip()
 
         if rm_non_ascii:
-            str_val_tmp_ascii = ""
-            for c in str_val_tmp:
-                if (
-                    (c in string.ascii_letters)
-                    or (c in string.punctuation)
-                    or (c == " ")
-                ):
-                    str_val_tmp_ascii += c
-            str_val_tmp = str_val_tmp_ascii
+            allowed_ascii = set(string.ascii_letters + string.digits + string.punctuation + " ")
+            str_val_tmp = "".join(c for c in str_val_tmp if c in allowed_ascii)
 
         if rm_dashs:
             str_val_tmp = str_val_tmp.replace("-", "_")
@@ -320,10 +303,7 @@ class PBPTUtils(object):
         :return: string of length size.
 
         """
-        import uuid
-
-        randomStr = str(uuid.uuid4())
-        randomStr = randomStr.replace("-", "")
+        randomStr = str(uuid.uuid4()).replace("-", "")
         return randomStr[0:size]
 
 
@@ -336,15 +316,11 @@ class PBPTTextFileUtils(object):
         :return:
         """
         out_list = []
-        try:
-            dataFile = open(file, "r")
+        with open(file, "r") as dataFile:
             for line in dataFile:
                 line = line.strip()
                 if line != "":
                     out_list.append(line)
-            dataFile.close()
-        except Exception as e:
-            raise e
         return out_list
 
     def writeList2File(self, data_list, out_file):
@@ -354,14 +330,9 @@ class PBPTTextFileUtils(object):
         :param out_file:
         :return:
         """
-        try:
-            f = open(out_file, "w")
+        with open(out_file, "w") as f:
             for item in data_list:
                 f.write(str(item) + "\n")
-            f.flush()
-            f.close()
-        except Exception as e:
-            raise e
 
 
 class PBPTJSONParseHelper(object):
@@ -371,11 +342,11 @@ class PBPTJSONParseHelper(object):
         :param file_path:
         :return:
         """
-        with gzip.GzipFile(file_path, "r") as fin:  # 4. gzip
-            json_bytes = fin.read()  # 3. bytes (i.e. UTF-8)
+        with gzip.GzipFile(file_path, "r") as fin:
+            json_bytes = fin.read()
 
-        json_str = json_bytes.decode("utf-8")  # 2. string (i.e. JSON)
-        data = json.loads(json_str)  # 1. data
+        json_str = json_bytes.decode("utf-8")
+        data = json.loads(json_str)
         return data
 
     def writeGZIPJSON(self, data, file_path):
@@ -385,10 +356,10 @@ class PBPTJSONParseHelper(object):
         :param file_path:
         :return:
         """
-        json_str = json.dumps(data) + "\n"  # 1. string (i.e. JSON)
-        json_bytes = json_str.encode("utf-8")  # 2. bytes (i.e. UTF-8)
+        json_str = json.dumps(data) + "\n"
+        json_bytes = json_str.encode("utf-8")
 
-        with gzip.GzipFile(file_path, "w") as fout:  # 3. gzip
+        with gzip.GzipFile(file_path, "w") as fout:
             fout.write(json_bytes)
 
     def doesPathExist(self, json_obj, tree_sequence):
@@ -399,16 +370,25 @@ class PBPTJSONParseHelper(object):
         :return: boolean
         """
         curr_json_obj = json_obj
-        steps_str = ""
         path_exists = True
         for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
+            if isinstance(curr_json_obj, dict) and (tree_step in curr_json_obj):
                 curr_json_obj = curr_json_obj[tree_step]
             else:
                 path_exists = False
                 break
         return path_exists
+
+    def _traverse(self, json_obj, tree_sequence):
+        curr_json_obj = json_obj
+        steps_str = ""
+        for tree_step in tree_sequence:
+            steps_str = steps_str + ":" + tree_step
+            if isinstance(curr_json_obj, dict) and (tree_step in curr_json_obj):
+                curr_json_obj = curr_json_obj[tree_step]
+            else:
+                raise Exception("Could not find '{}'".format(steps_str))
+        return curr_json_obj, steps_str
 
     def getValueDict(self, json_obj, tree_sequence):
         """
@@ -417,20 +397,8 @@ class PBPTJSONParseHelper(object):
         :param tree_sequence:
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
-
-        out_dict = dict()
-        for name in curr_json_obj:
-            out_dict[name] = curr_json_obj[name]
-
-        return out_dict
+        curr_json_obj, _ = self._traverse(json_obj, tree_sequence)
+        return dict(curr_json_obj)
 
     def getStrValue(self, json_obj, tree_sequence, valid_values=None):
         """
@@ -440,14 +408,7 @@ class PBPTJSONParseHelper(object):
         :param valid_values:
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
+        curr_json_obj, _ = self._traverse(json_obj, tree_sequence)
         if valid_values is not None:
             if curr_json_obj not in valid_values:
                 raise Exception(
@@ -462,19 +423,10 @@ class PBPTJSONParseHelper(object):
         :param tree_sequence: list of strings
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
-        if type(curr_json_obj).__name__ == "bool":
-            rtn_bool = curr_json_obj
-        else:
-            raise Exception("'{}' is not 'True' or 'False'.".format(curr_json_obj))
-        return rtn_bool
+        curr_json_obj, _ = self._traverse(json_obj, tree_sequence)
+        if isinstance(curr_json_obj, bool):
+            return curr_json_obj
+        raise Exception("'{}' is not 'True' or 'False'.".format(curr_json_obj))
 
     def getDateValue(self, json_obj, tree_sequence, date_format="%Y-%m-%d"):
         """
@@ -484,19 +436,8 @@ class PBPTJSONParseHelper(object):
         :param tree_sequence: list of strings
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
-        try:
-            out_date_obj = datetime.datetime.strptime(curr_json_obj, date_format).date()
-        except Exception as e:
-            raise Exception(e)
-        return out_date_obj
+        curr_json_obj, _ = self._traverse(json_obj, tree_sequence)
+        return datetime.datetime.strptime(curr_json_obj, date_format).date()
 
     def getDateTimeValue(self, json_obj, tree_sequence, date_time_format="%Y-%m-%d"):
         """
@@ -506,21 +447,8 @@ class PBPTJSONParseHelper(object):
         :param tree_sequence: list of strings
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
-        try:
-            out_datetime_obj = datetime.datetime.strptime(
-                curr_json_obj, date_time_format
-            )
-        except Exception as e:
-            raise Exception(e)
-        return out_datetime_obj
+        curr_json_obj, _ = self._traverse(json_obj, tree_sequence)
+        return datetime.datetime.strptime(curr_json_obj, date_time_format)
 
     def getStrListValue(self, json_obj, tree_sequence, valid_values=None):
         """
@@ -530,20 +458,12 @@ class PBPTJSONParseHelper(object):
         :param valid_values:
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
-
-        if type(curr_json_obj).__name__ != "list":
+        curr_json_obj, _ = self._traverse(json_obj, tree_sequence)
+        if not isinstance(curr_json_obj, list):
             raise Exception("Retrieved value is not a list.")
         if valid_values is not None:
             for val in curr_json_obj:
-                if type(val).__name__ != "str":
+                if not isinstance(val, str):
                     raise Exception("'{}' is not of type string.".format(val))
                 if val not in valid_values:
                     raise Exception(
@@ -562,23 +482,16 @@ class PBPTJSONParseHelper(object):
         :param tree_sequence: list of strings
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
+        curr_json_obj, steps_str = self._traverse(json_obj, tree_sequence)
 
-        if (type(curr_json_obj).__name__ == "int") or (
-            type(curr_json_obj).__name__ == "float"
+        if (not isinstance(curr_json_obj, bool)) and isinstance(
+            curr_json_obj, (int, float)
         ):
             out_value = curr_json_obj
-        elif type(curr_json_obj).__name__ == "str":
-            if curr_json_obj.isnumeric():
+        elif isinstance(curr_json_obj, str):
+            try:
                 out_value = float(curr_json_obj)
-            else:
+            except ValueError:
                 raise Exception(
                     "The identified value is not numeric '{}'".format(steps_str)
                 )
@@ -606,15 +519,7 @@ class PBPTJSONParseHelper(object):
         :param tree_sequence: list of strings
         :return:
         """
-        curr_json_obj = json_obj
-        steps_str = ""
-        for tree_step in tree_sequence:
-            steps_str = steps_str + ":" + tree_step
-            if tree_step in curr_json_obj:
-                curr_json_obj = curr_json_obj[tree_step]
-            else:
-                raise Exception("Could not find '{}'".format(steps_str))
-
-        if type(curr_json_obj).__name__ != "list":
+        curr_json_obj, _ = self._traverse(json_obj, tree_sequence)
+        if not isinstance(curr_json_obj, list):
             raise Exception("Retrieved value is not a list.")
         return curr_json_obj

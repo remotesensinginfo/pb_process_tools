@@ -1,3 +1,4 @@
 tqdm
-SQLAlchemy
-setuptools
+SQLAlchemy>=2.0
+jinja2
+psycopg2-binary

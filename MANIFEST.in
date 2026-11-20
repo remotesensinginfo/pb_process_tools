@@ -4,5 +4,5 @@ include *.md
 # Include the license file
 include LICENSE.txt
 
-# Include the template files
-recursive-include pbslurmusertools/templates *
+# Include share config files
+recursive-include share *

@@ -40,7 +40,7 @@
         "my_module": {
             "level": "INFO",
             "handlers": ["console"],
-            "propagate": "no"
+            "propagate": false
         }
     },
 

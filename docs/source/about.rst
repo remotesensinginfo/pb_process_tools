@@ -1,8 +1,11 @@
 About
-=======
+=====
 
-These tools are simply a collection of utilities that I've developed over a number of years to support my own data processing. There is a progression in my thinking, and subsequent sophistication, in the methods used. Initially, this was just some simple helper command lines tools but is now a pair of abstract classes which can either use a sqlite or postgresql database.
+These tools are a collection of utilities developed to support large-scale batch data processing across workstations and HPC clusters. In v4.0.0, the queue backend has been modernised around SQLAlchemy 2.0 and PostgreSQL, providing:
 
-If you have any comments or suggestions I'd be happy to hear them, please raise an issue on GitHub (`<https://github.com/remotesensinginfo/pb_process_tools/issues>'_). I cannot make any promises to make changes based on those comments as this is very much a 'as I needed it' project.
+* Atomic worker job claiming using PostgreSQL ``FOR UPDATE SKIP LOCKED``.
+* Per-task queue table (and optional schema) isolation so multiple independent workflows can share a single PostgreSQL database concurrently.
+* Incremental job appending with deduplication, live ``--status`` / ``--watch`` monitoring, parallel output checks (``--check -w``), error inspection, Slurm job arrays, and a dedicated database cleanup CLI (``pbpt_clean_db.py``).
 
-I am also very happy to review and accept pull requests with any big fixes or proposed improvements.
+If you have comments, bug reports, or suggestions, please open an issue on GitHub:
+https://github.com/remotesensinginfo/pb_process_tools/issues.

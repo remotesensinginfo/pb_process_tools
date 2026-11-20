@@ -27,28 +27,29 @@ See other source files for details
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 12/11/2018
-# Version: 1.0
-#
-# History:
-# Version 1.0 - Created.
+# Version: 4.0.0
 
 import json
 import logging
 import logging.config
 import os
 import sys
-from distutils.version import LooseVersion
 
-PB_PROCESS_TOOLS_VERSION_MAJOR = 3
-PB_PROCESS_TOOLS_VERSION_MINOR = 1
-PB_PROCESS_TOOLS_VERSION_PATCH = 7
+PB_PROCESS_TOOLS_VERSION_MAJOR = 4
+PB_PROCESS_TOOLS_VERSION_MINOR = 0
+PB_PROCESS_TOOLS_VERSION_PATCH = 0
 
 PB_PROCESS_TOOLS_VERSION = "{}.{}.{}".format(
     PB_PROCESS_TOOLS_VERSION_MAJOR,
     PB_PROCESS_TOOLS_VERSION_MINOR,
     PB_PROCESS_TOOLS_VERSION_PATCH,
 )
-PB_PROCESS_TOOLS_VERSION_OBJ = LooseVersion(PB_PROCESS_TOOLS_VERSION)
+PB_PROCESS_TOOLS_VERSION_INFO = (
+    PB_PROCESS_TOOLS_VERSION_MAJOR,
+    PB_PROCESS_TOOLS_VERSION_MINOR,
+    PB_PROCESS_TOOLS_VERSION_PATCH,
+)
+PB_PROCESS_TOOLS_VERSION_OBJ = PB_PROCESS_TOOLS_VERSION_INFO
 __version__ = PB_PROCESS_TOOLS_VERSION
 
 py_sys_version = sys.version_info
@@ -60,23 +61,20 @@ PB_PROCESS_TOOLS_COPYRIGHT_NAMES = "Pete Bunting"
 
 PB_PROCESS_TOOLS_SUPPORT_EMAIL = "rsgislib-support@googlegroups.com"
 
-pbpt_log_level = os.getenv("PBTP_LOG_LVL", "INFO")
+_LOG_LEVEL_MAP = {
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
 
-log_default_level = logging.INFO
-if pbpt_log_level.upper() == "INFO":
-    log_default_level = logging.INFO
-elif pbpt_log_level.upper() == "DEBUG":
-    log_default_level = logging.DEBUG
-elif pbpt_log_level.upper() == "WARNING":
-    log_default_level = logging.WARNING
-elif pbpt_log_level.upper() == "ERROR":
-    log_default_level = logging.ERROR
-elif pbpt_log_level.upper() == "CRITICAL":
-    log_default_level = logging.CRITICAL
-else:
-    raise Exception(
+pbpt_log_level = os.getenv("PBPT_LOG_LVL") or os.getenv("PBTP_LOG_LVL") or "INFO"
+if pbpt_log_level.upper() not in _LOG_LEVEL_MAP:
+    raise ValueError(
         "Logging level specified ('{}') is not recognised.".format(pbpt_log_level)
     )
+log_default_level = _LOG_LEVEL_MAP[pbpt_log_level.upper()]
 
 log_config_path = os.getenv("PBPT_LOG_CFG", None)
 if (log_config_path is not None) and os.path.exists(log_config_path):
@@ -84,7 +82,16 @@ if (log_config_path is not None) and os.path.exists(log_config_path):
         config = json.load(f)
     logging.config.dictConfig(config)
 else:
-    logging.basicConfig(
-        level=log_default_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    logging.getLogger(__name__).addHandler(logging.NullHandler())
+
+
+def configure_logging(level=None):
+    """Configure root logging for CLI invocations if no handlers are registered."""
+    if level is None:
+        level = log_default_level
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
