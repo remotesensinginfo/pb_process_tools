@@ -1,0 +1,6 @@
+sphinx>=7.0
+sphinx-rtd-theme>=2.0
+tqdm
+SQLAlchemy>=2.0
+jinja2
+psycopg2-binary
