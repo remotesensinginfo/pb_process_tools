@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pb_process_tools"
+version = "4.0.0"
+description = "Tools for batch processing data, including on HPC cluster with slurm."
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+authors = [
+    {name = "Pete Bunting", email = "petebunting@mac.com"},
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "sqlalchemy>=2.0",
+    "tqdm",
+    "jinja2",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg2-binary"]
+dev = ["pytest", "black"]
+
+[project.scripts]
+pbpt_clean_db = "pbprocesstools.pbpt_db_clean:main"
+
+[project.urls]
+Homepage = "https://github.com/remotesensinginfo/pb_process_tools"
+
+[tool.setuptools]
+packages = ["pbprocesstools"]
+script-files = ["bin/pbpt_gen_template.py", "bin/pbpt_clean_db.py"]
+
+[tool.setuptools.data-files]
+"share/pbprocesstools" = ["share/loggingconfig.json"]
