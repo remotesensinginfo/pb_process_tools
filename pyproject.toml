@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pb_process_tools"
-version = "4.0.0"
+dynamic = ["version"]
 description = "Tools for batch processing data, including on HPC cluster with slurm."
 readme = "README.md"
 license = {file = "LICENSE.txt"}
@@ -27,11 +27,13 @@ dependencies = [
     "sqlalchemy>=2.0",
     "tqdm",
     "jinja2",
+    "rsgispy",
 ]
 
 [project.optional-dependencies]
 postgres = ["psycopg2-binary"]
 dev = ["pytest", "black"]
+docs = ["sphinx>=7.0", "sphinx-rtd-theme>=2.0"]
 
 [project.scripts]
 pbpt_clean_db = "pbprocesstools.pbpt_db_clean:main"
@@ -43,5 +45,15 @@ Homepage = "https://github.com/remotesensinginfo/pb_process_tools"
 packages = ["pbprocesstools"]
 script-files = ["bin/pbpt_gen_template.py", "bin/pbpt_clean_db.py"]
 
+[tool.setuptools.dynamic]
+version = {attr = "pbprocesstools.__version__"}
+
 [tool.setuptools.data-files]
 "share/pbprocesstools" = ["share/loggingconfig.json"]
+
+[tool.pylint.FORMAT]
+max-line-length = 120
+
+[tool.pylint.TYPECHECK]
+generated-members = ["sqlalchemy.func.*"]
+

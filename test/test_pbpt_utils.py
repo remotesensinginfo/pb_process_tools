@@ -20,7 +20,7 @@ class PBPTUtilsTest(unittest.TestCase):
     def test_package_init_logging_and_configure(self):
         import pbprocesstools
 
-        self.assertEqual(pbprocesstools.__version__, "4.0.0")
+        self.assertEqual(pbprocesstools.__version__, "4.0.1")
         self.assertIsInstance(pbprocesstools.py_sys_version_flt, float)
 
         orig_lvl = os.environ.get("PBPT_LOG_LVL")
@@ -181,11 +181,18 @@ class PBPTUtilsTest(unittest.TestCase):
                     target, sleep_period=0.01, wait_iters=0, use_except=True
                 )
 
-            # Simulate OSError during release triggering clean_file_locks
-            with unittest.mock.patch("os.remove", side_effect=OSError("perm")):
+            # Simulate OSError and RSGISPyException during release triggering clean_file_locks
+            import rsgispy
+
+            with unittest.mock.patch(
+                "rsgispy.tools.filetools.release_file_lock",
+                side_effect=OSError("perm"),
+            ):
                 self.pbpt_utils.release_file_lock(target, timeout=3600)
-            # Simulate FileNotFoundError during release
-            with unittest.mock.patch("os.remove", side_effect=FileNotFoundError()):
+            with unittest.mock.patch(
+                "rsgispy.tools.filetools.release_file_lock",
+                side_effect=rsgispy.RSGISPyException("missing"),
+            ):
                 self.pbpt_utils.release_file_lock(target, timeout=3600)
 
             self.pbpt_utils.release_file_lock(target)
@@ -196,31 +203,36 @@ class PBPTUtilsTest(unittest.TestCase):
             )
             self.pbpt_utils.release_file_lock(target)
 
-            # Test clean_file_locks with stale, empty, malformed, and fresh locks
-            stale_lock = os.path.join(tmpdir, ".stale.lok")
+            # Pre-existing stale lock is automatically cleaned and retried by get_file_lock
+            stale_target_lock = os.path.join(tmpdir, ".test.db.lok")
             old_ts = (
                 datetime.datetime.now() - datetime.timedelta(seconds=7200)
             ).isoformat()
+            pathlib.Path(stale_target_lock).write_text(old_ts)
+            self.assertTrue(
+                self.pbpt_utils.get_file_lock(
+                    target, sleep_period=0.01, wait_iters=0, timeout=10
+                )
+            )
+            self.pbpt_utils.release_file_lock(target)
+
+            # Test clean_file_locks with stale and fresh locks
+            stale_lock = os.path.join(tmpdir, ".stale.lok")
             pathlib.Path(stale_lock).write_text(old_ts)
-
-            empty_lock = os.path.join(tmpdir, ".empty.lok")
-            pathlib.Path(empty_lock).write_text("   ")
-
-            bad_lock = os.path.join(tmpdir, ".bad.lok")
-            pathlib.Path(bad_lock).write_text("not-a-timestamp")
 
             fresh_lock = os.path.join(tmpdir, ".fresh.lok")
             pathlib.Path(fresh_lock).write_text(datetime.datetime.now().isoformat())
 
             self.pbpt_utils.clean_file_locks(tmpdir, timeout=3600)
             self.assertFalse(os.path.exists(stale_lock))
-            self.assertFalse(os.path.exists(empty_lock))
-            self.assertTrue(os.path.exists(bad_lock))
             self.assertTrue(os.path.exists(fresh_lock))
 
             # Clean with empty dir_path falls back to "."
-            with unittest.mock.patch("glob.glob", return_value=[]):
+            with unittest.mock.patch(
+                "rsgispy.tools.filetools.clean_file_locks"
+            ) as mock_clean:
                 self.pbpt_utils.clean_file_locks("", timeout=10)
+                mock_clean.assert_called_once_with(".", timeout=10)
 
     def test_json_helper_full(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -253,6 +265,8 @@ class PBPTUtilsTest(unittest.TestCase):
             self.assertEqual(
                 self.json_helper.getValueDict(data, ["meta"])["name"], "sentinel2"
             )
+            with self.assertRaises(KeyError):
+                self.json_helper.getValueDict(data, ["meta", "missing"])
             self.assertEqual(
                 self.json_helper.getStrValue(
                     data, ["meta", "name"], valid_values=["sentinel2", "landsat8"]

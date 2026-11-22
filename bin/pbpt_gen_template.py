@@ -10,7 +10,7 @@
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 6/1/2023
-# Version: 4.0.0
+# Version: 4.0.1
 #
 ############################################################################
 
@@ -120,7 +120,7 @@ class GenCmds(PBPTGenQProcessToolCmds):
             run_script="{{ file_prefix }}run_exe_analysis.sh",
             job_dir="{{ file_prefix }}job_scripts",
             db_info_file="{{ file_prefix }}pbpt_lcl_db_info.json",
-            # account_name="",
+            # account_name=None,
             n_cores_per_job=5,
             n_xtr_cmds=5,
             n_jobs=5,

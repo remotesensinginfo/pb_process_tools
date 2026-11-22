@@ -6,7 +6,7 @@ Tools for batch processing workflows as a set of jobs backed by a PostgreSQL job
 
 ## Installation
 
-Install `pb_process_tools` (v4.0.0) from the source directory (where `pyproject.toml` is located):
+Install `pb_process_tools` (v4.0.1) from the source directory (where `pyproject.toml` is located):
 
 ```bash
 pip install .

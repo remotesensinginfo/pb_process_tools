@@ -15,11 +15,11 @@ endif
 # Internal variables.
 PAPEROPT_a4     = -D latex_paper_size=a4
 PAPEROPT_letter = -D latex_paper_size=letter
-ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
+ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
 # the i18n builder cannot share the environment and doctrees with the others
-I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
+I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
 
-.PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
+.PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext scriptsdoc
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -47,23 +47,23 @@ help:
 	@echo "  doctest    to run all doctests embedded in the documentation (if enabled)"
 
 scriptsdoc:
-	python source/create_scripts_rst.py
+	python create_scripts_rst.py
 
 clean:
-	rm source/scripts.rst
+	rm -f scripts.rst
 	rm -rf $(BUILDDIR)/*
 
-html scriptsdoc:
+html:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 
-dirhtml scriptsdoc:
+dirhtml:
 	$(SPHINXBUILD) -b dirhtml $(ALLSPHINXOPTS) $(BUILDDIR)/dirhtml
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/dirhtml."
 
-singlehtml scriptsdoc:
+singlehtml:
 	$(SPHINXBUILD) -b singlehtml $(ALLSPHINXOPTS) $(BUILDDIR)/singlehtml
 	@echo
 	@echo "Build finished. The HTML page is in $(BUILDDIR)/singlehtml."
@@ -89,17 +89,17 @@ qthelp:
 	@echo
 	@echo "Build finished; now you can run "qcollectiongenerator" with the" \
 	      ".qhcp project file in $(BUILDDIR)/qthelp, like this:"
-	@echo "# qcollectiongenerator $(BUILDDIR)/qthelp/arcsi.qhcp"
+	@echo "# qcollectiongenerator $(BUILDDIR)/qthelp/pbprocesstools.qhcp"
 	@echo "To view the help file:"
-	@echo "# assistant -collectionFile $(BUILDDIR)/qthelp/arcsi.qhc"
+	@echo "# assistant -collectionFile $(BUILDDIR)/qthelp/pbprocesstools.qhc"
 
 devhelp:
 	$(SPHINXBUILD) -b devhelp $(ALLSPHINXOPTS) $(BUILDDIR)/devhelp
 	@echo
 	@echo "Build finished."
 	@echo "To view the help file:"
-	@echo "# mkdir -p $$HOME/.local/share/devhelp/arcsi"
-	@echo "# ln -s $(BUILDDIR)/devhelp $$HOME/.local/share/devhelp/arcsi"
+	@echo "# mkdir -p $$HOME/.local/share/devhelp/pbprocesstools"
+	@echo "# ln -s $(BUILDDIR)/devhelp $$HOME/.local/share/devhelp/pbprocesstools"
 	@echo "# devhelp"
 
 epub:

@@ -9,51 +9,40 @@ http://stackoverflow.com/questions/7250659/python-code-to-generate-part-of-sphin
 
 """
 
-import subprocess
-import os
 import glob
+import os
+import subprocess
+import sys
+
 
 def get_script_help(script):
-    """ Get output from command """
-
-    out = subprocess.check_output([script, "-h"])
-
-    stdout_lines = out.decode().split('\n')
-    tabbed_lines = ''
-    for line in stdout_lines:
-        tabbed_lines += '    {}\n'.format(line)
-    return tabbed_lines
+    """Get help output from a CLI script."""
+    out = subprocess.check_output([sys.executable, script, "-h"])
+    stdout_lines = out.decode("utf-8").split("\n")
+    return "".join(f"    {line}\n" for line in stdout_lines)
 
 
 if __name__ == "__main__":
+    docs_dir = os.path.dirname(os.path.abspath(__file__))
+    outfile = os.path.join(docs_dir, "scripts.rst")
+    scripts_list = sorted(glob.glob(os.path.join(docs_dir, "..", "bin", "*.py")))
 
-    outfile = os.path.join(os.path.split(__file__)[0],'scripts.rst')
-    scripts_list = glob.glob("../../bin/*py")
-
-
-    scripts_text = '''
-
-Scripts
-========
-
-'''
+    scripts_text = "\n\nScripts\n========\n\n"
     for script in scripts_list:
         try:
             script_out = get_script_help(script)
         except Exception as err:
-            print("Couldn't run {}\n{}".format(script, err))
+            print(f"Couldn't run {script}\n{err}")
+            continue
 
-        scripts_text = '''{}
+        scripts_text = (
+            f"{scripts_text}\n\n"
+            f"{os.path.basename(script)}\n"
+            f"------------------------------\n\n"
+            f".. code-block:: text\n\n"
+            f"{script_out}\n\n"
+        )
 
-{}
-------------------------------
-
-.. code-block:: text
-
-{}
-
-
-'''.format(scripts_text, os.path.basename(script), script_out)
-
-    with open(outfile,'w') as f:
+    with open(outfile, "w", encoding="utf-8") as f:
         f.write(scripts_text)
+

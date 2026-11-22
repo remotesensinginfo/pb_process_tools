@@ -1,7 +1,7 @@
 Example: Calculating NDVI for Landsat Images using rsgispy
 ==========================================================
 
-This example demonstrates a complete batch workflow using ``pb_process_tools`` v4.0.0 and ``rsgispy`` to calculate Normalised Difference Vegetation Index (NDVI) across a directory of multi-band Landsat surface reflectance images.
+This example demonstrates a complete batch workflow using ``pb_process_tools`` v4.0.1 and ``rsgispy`` to calculate Normalised Difference Vegetation Index (NDVI) across a directory of multi-band Landsat surface reflectance images.
 
 Each scene is processed independently by parallel workers (on Slurm using a job array or on a local workstation using GNU Parallel), tracked in a dedicated PostgreSQL queue table, verified in parallel, and cleaned up afterwards.
 

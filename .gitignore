@@ -1,2 +1,10 @@
 .idea
-build
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+docs/build/
+.DS_Store

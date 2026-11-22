@@ -37,7 +37,7 @@ and then install ``pb_process_tools`` with ``pip install . --no-deps``.
 Database Configuration
 ----------------------
 
-v4.0.0 uses PostgreSQL exclusively for production job queues (SQLite queue support was removed).
+v4.0.1 uses PostgreSQL exclusively for production job queues (SQLite queue support was removed in v4.0.0).
 Provide a SQLAlchemy PostgreSQL connection URL either:
 
 1. In a text file passed via ``db_conn_file`` / ``--dbfile``::

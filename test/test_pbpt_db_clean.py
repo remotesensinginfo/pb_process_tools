@@ -233,14 +233,51 @@ class PBPTDatabaseCleanerTest(unittest.TestCase):
             "public",
             "eo_batch",
         ]
-        # After dropping the table in eo_batch, schema is empty
+        # After dropping the table in eo_batch, schema has no tables or views
         mock_inspector.get_table_names.return_value = []
+        mock_inspector.get_view_names.return_value = []
 
         # _get_target_schemas filters out pg_*/information_schema
         schemas = cleaner._get_target_schemas(
             mock_engine, mock_inspector, all_schemas=True
         )
         self.assertEqual(schemas, ["public", "eo_batch"])
+
+        # Explicit schema-qualified table targets auto-include their schema
+        schemas_from_targets = cleaner._get_target_schemas(
+            mock_engine,
+            mock_inspector,
+            schema=None,
+            all_schemas=False,
+            tables=["eo_batch.run1"],
+        )
+        self.assertEqual(schemas_from_targets, ["eo_batch"])
+
+        schemas_mixed = cleaner._get_target_schemas(
+            mock_engine,
+            mock_inspector,
+            schema=None,
+            all_schemas=False,
+            tables=["run0", "eo_batch.run1"],
+        )
+        self.assertEqual(schemas_mixed, [None, "eo_batch"])
+
+        # _query_table_size_bytes uses SAVEPOINT and identifier quoting, handles SQLAlchemyError
+        mock_engine.dialect.identifier_preparer.quote.side_effect = (
+            lambda ident: f'"{ident}"'
+        )
+        mock_ses = unittest.mock.MagicMock()
+        mock_ses.execute.return_value.scalar.return_value = 65536
+        sz = cleaner._query_table_size_bytes(mock_engine, mock_ses, "eo_batch", "run1")
+        self.assertEqual(sz, 65536)
+        mock_ses.begin_nested.assert_called_once()
+        _, call_params = mock_ses.execute.call_args[0]
+        self.assertEqual(call_params["relname"], '"eo_batch"."run1"')
+
+        mock_ses.execute.side_effect = sqlalchemy.exc.SQLAlchemyError("perm denied")
+        self.assertIsNone(
+            cleaner._query_table_size_bytes(mock_engine, mock_ses, "eo_batch", "run1")
+        )
 
         # _format_table_report renders Size column when size_bytes is present
         sample_tables = [
@@ -287,6 +324,52 @@ class PBPTDatabaseCleanerTest(unittest.TestCase):
         self.assertEqual(res["dropped"], ["eo_batch.run1"])
         self.assertEqual(res["dropped_schemas"], ["eo_batch"])
         self.assertTrue(res["vacuumed"])
+
+        # _drop_empty_schemas skips schemas that still contain views
+        mock_inspector.get_view_names.return_value = ["v_summary"]
+        with unittest.mock.patch("sqlalchemy.inspect", return_value=mock_inspector):
+            self.assertEqual(
+                cleaner._drop_empty_schemas(mock_engine, {"eo_batch"}), []
+            )
+
+        # _drop_empty_schemas handles SQLAlchemyError gracefully when schema has other objects
+        mock_inspector.get_view_names.return_value = []
+        mock_conn.execute.side_effect = sqlalchemy.exc.SQLAlchemyError("not empty")
+        with unittest.mock.patch("sqlalchemy.inspect", return_value=mock_inspector):
+            self.assertEqual(
+                cleaner._drop_empty_schemas(mock_engine, {"eo_batch"}), []
+            )
+
+    def test_unstarted_errored_job_not_counted_as_pending_or_active(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url = f"sqlite:///{os.path.join(tmpdir, 'err_state.db')}"
+            engine = sqlalchemy.create_engine(db_url)
+            try:
+                _create_queue_table_with_rows(
+                    engine,
+                    "job_unstarted_err",
+                    [
+                        {
+                            "JobParams": {"id": 1},
+                            "Start": None,
+                            "End": None,
+                            "Started": False,
+                            "Completed": False,
+                            "Checked": False,
+                            "Error": True,
+                            "ErrorInfo": {"error": "check failed"},
+                        }
+                    ],
+                )
+            finally:
+                engine.dispose()
+
+            cleaner = PBPTDatabaseCleaner(db_conn_str=db_url)
+            listed = cleaner.list_queue_tables()
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0]["pending"], 0)
+            self.assertEqual(listed[0]["errors"], 1)
+            self.assertEqual(listed[0]["state"], "FINISHED_WITH_ERRORS")
 
     def test_cli_script_and_interactive_modes(self):
         script_path = os.path.abspath(

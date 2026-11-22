@@ -299,7 +299,7 @@ class PBPTQProcessTest(unittest.TestCase):
             self.assertNotIn("container.sifpython", run_gen)
 
             gen_cmds_py = pathlib.Path(os.path.join(tmpdir, "gen_cmds.py")).read_text()
-            self.assertNotIn("rsgislib", gen_cmds_py)
+            self.assertIn("pbprocesstools", gen_cmds_py)
             self.assertNotIn("lock_file_path", gen_cmds_py)
             self.assertIn('db_table_name="singularity_task"', gen_cmds_py)
 
@@ -620,8 +620,10 @@ class PBPTQProcessTest(unittest.TestCase):
             self.assertIn("#SBATCH --array=0-5%3", sbatch_txt)
 
             run_lines = pathlib.Path(run_sh).read_text().strip().splitlines()
-            self.assertEqual(len(run_lines), 1)
-            self.assertIn("job_array.sbatch", run_lines[0])
+            self.assertEqual(len(run_lines), 2)
+            self.assertEqual(run_lines[0], "#!/bin/bash")
+            self.assertIn("job_array.sbatch", run_lines[1])
+            self.assertTrue(os.access(run_sh, os.X_OK))
 
             cmds_lines = (
                 pathlib.Path(os.path.join(job_dir, "jobcmds.sh"))
@@ -1228,12 +1230,233 @@ class PBPTQProcessTest(unittest.TestCase):
                 module_load=None,
                 use_array=False,
             )
-            self.assertEqual(
-                len(pathlib.Path(s_run).read_text().strip().splitlines()), 2
-            )
+            s_run_lines = pathlib.Path(s_run).read_text().strip().splitlines()
+            self.assertEqual(len(s_run_lines), 3)
+            self.assertEqual(s_run_lines[0], "#!/bin/bash")
+            self.assertTrue(os.access(s_run, os.X_OK))
             sbatch0 = pathlib.Path(os.path.join(s_dir, "job_file_0.sbatch")).read_text()
             self.assertIn("#SBATCH --account=acct1", sbatch0)
             self.assertNotIn("module load", sbatch0)
+
+    def test_v4_bugfixes_and_regressions(self):
+        from pbprocesstools.pbpt_q_process import _mask_db_url
+
+        # 1) Password masking helper
+        self.assertEqual(
+            _mask_db_url("postgresql+psycopg2://alice:s3cr3t@db.example.com:5432/q"),
+            "postgresql+psycopg2://alice:***@db.example.com:5432/q",
+        )
+        self.assertEqual(_mask_db_url(":::not-a-url"), "<invalid-db-url>")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_file = os.path.join(tmpdir, "regress.db")
+            db_url = f"sqlite:///{db_file}"
+
+            jobs = [
+                {"out_file": os.path.join(tmpdir, "ok1.txt"), "mode": "ok"},
+                {"out_file": os.path.join(tmpdir, "ok2.txt"), "mode": "ok"},
+                {"out_file": os.path.join(tmpdir, "fail1.txt"), "mode": "fail"},
+            ]
+            gen = _DummyGen(
+                jobs_params=jobs,
+                db_conn_str=db_url,
+                db_table_name="task_regress",
+                process_tools_path=os.path.dirname(__file__),
+                process_tools_mod=os.path.splitext(os.path.basename(__file__))[0],
+                process_tools_cls="_DummyWorker",
+            )
+            gen.run_gen_commands()
+            db_info_path = gen._write_db_info_file(
+                os.path.join(tmpdir, "dbinfo.json")
+            )
+
+            # 2) create_shell_exe writes #!/bin/bash and sets executable bit
+            sh_run = os.path.join(tmpdir, "run_local.sh")
+            sh_cmds = os.path.join(tmpdir, "cmds_local.sh")
+            gen.create_shell_exe(sh_run, sh_cmds, 2, db_info_file=db_info_path)
+            sh_lines = pathlib.Path(sh_run).read_text().splitlines()
+            self.assertEqual(sh_lines[0], "#!/bin/bash")
+            self.assertTrue(os.access(sh_run, os.X_OK))
+
+            # 3) Empty-string Slurm options are omitted from sbatch script
+            s_run = os.path.join(tmpdir, "sub_empty.sh")
+            s_dir = os.path.join(tmpdir, "empty_opts_jobs")
+            s_log = os.path.join(tmpdir, "empty_opts_logs")
+            gen.create_slurm_sub_sh(
+                "empty_opts",
+                1024,
+                s_log,
+                run_script=s_run,
+                job_dir=s_dir,
+                db_info_file=db_info_path,
+                account_name="",
+                partition="",
+                qos="",
+                constraint="",
+                gres="",
+                module_load="",
+                n_jobs=1,
+            )
+            sbatch_txt = pathlib.Path(
+                os.path.join(s_dir, "job_file_0.sbatch")
+            ).read_text()
+            for flag in (
+                "--account=",
+                "--partition=",
+                "--qos=",
+                "--constraint=",
+                "--gres=",
+                "module load",
+            ):
+                self.assertNotIn(flag, sbatch_txt)
+
+            # 4) Run worker and verify quartiles in create_jobs_report() (Python 3.10+)
+            worker = _DummyWorker()
+            orig_argv = sys.argv
+            try:
+                sys.argv = ["dummy_worker.py", "--dbinfo", db_info_path]
+                worker.std_run()
+            finally:
+                sys.argv = orig_argv
+
+            rep_file = os.path.join(tmpdir, "report.json")
+            gen.create_jobs_report(out_report_file=rep_file)
+            rep = json.loads(pathlib.Path(rep_file).read_text())
+            self.assertIn("time_quartiles_secs", rep["job_times"])
+            self.assertEqual(len(rep["job_times"]["time_quartiles_secs"]), 3)
+
+            # 5) check_job_outputs preserves worker ErrorInfo traceback & Started=True
+            err_before = gen.inspect_job(3, print_output=False)
+            self.assertTrue(err_before["Error"])
+            self.assertTrue(err_before["Started"])
+            self.assertIn("traceback", err_before["ErrorInfo"])
+
+            gen.check_job_outputs()
+            err_after = gen.inspect_job(3, print_output=False)
+            self.assertTrue(err_after["Error"])
+            self.assertTrue(err_after["Started"])
+            self.assertIn("traceback", err_after["ErrorInfo"])
+            self.assertIn(
+                "intentional processing failure", err_after["ErrorInfo"]["error"]
+            )
+
+            # 6) _claim_next_job skips jobs with Started=False, Completed=False, Error=True
+            job_model = get_job_model("task_regress")
+            eng = sqlalchemy.create_engine(db_url)
+            try:
+                with eng.begin() as conn:
+                    conn.execute(
+                        sqlalchemy.update(job_model)
+                        .where(job_model.PID == 3)
+                        .values(Started=False, Completed=False, Error=True)
+                    )
+            finally:
+                eng.dispose()
+
+            claim_worker = _DummyWorker()
+            claim_worker.queue_db_info = {
+                "db_conn_str": db_url,
+                "db_table_name": "task_regress",
+            }
+            try:
+                self.assertIsNone(claim_worker._claim_next_job())
+            finally:
+                claim_worker.dispose_engine()
+
+            # 7) std_run raises SystemExit(1) when parse_cmds() returns False
+            bad_worker = _DummyWorker()
+            with unittest.mock.patch.object(
+                bad_worker, "parse_cmds", return_value=False
+            ):
+                with self.assertRaises(SystemExit) as ctx:
+                    bad_worker.std_run()
+                self.assertEqual(ctx.exception.code, 1)
+
+            # 8) std_run -j with non-existent PID raises LookupError
+            dbg_worker = _DummyWorker()
+            orig_argv = sys.argv
+            try:
+                sys.argv = ["dummy_worker.py", "--dbinfo", db_info_path, "-j", "9999"]
+                with self.assertRaises(LookupError):
+                    dbg_worker.std_run()
+            finally:
+                sys.argv = orig_argv
+
+            # 9) std_run retries transient DB failure on completed_processing and record_process_error
+            retry_jobs = [
+                {"out_file": os.path.join(tmpdir, "r_ok.txt"), "mode": "ok"},
+                {"out_file": os.path.join(tmpdir, "r_fail.txt"), "mode": "fail"},
+            ]
+            gen_retry = _DummyGen(
+                jobs_params=retry_jobs,
+                db_conn_str=db_url,
+                db_table_name="task_retry",
+                process_tools_path=os.path.dirname(__file__),
+                process_tools_mod=os.path.splitext(os.path.basename(__file__))[0],
+                process_tools_cls="_DummyWorker",
+            )
+            gen_retry.run_gen_commands()
+            retry_info = gen_retry._write_db_info_file(
+                os.path.join(tmpdir, "retry_dbinfo.json")
+            )
+
+            retry_worker = _DummyWorker()
+            orig_complete = retry_worker.completed_processing
+            orig_record_err = retry_worker.record_process_error
+            comp_calls = {"n": 0}
+            err_calls = {"n": 0}
+
+            def flaky_complete(**kwargs):
+                comp_calls["n"] += 1
+                if comp_calls["n"] == 1:
+                    raise sqlalchemy.exc.OperationalError("stmt", {}, Exception("drop"))
+                return orig_complete(**kwargs)
+
+            def flaky_record_err(err_dict):
+                err_calls["n"] += 1
+                if err_calls["n"] == 1:
+                    raise sqlalchemy.exc.OperationalError("stmt", {}, Exception("drop"))
+                return orig_record_err(err_dict)
+
+            orig_argv = sys.argv
+            try:
+                sys.argv = ["dummy_worker.py", "--dbinfo", retry_info]
+                with unittest.mock.patch.object(
+                    retry_worker, "completed_processing", side_effect=flaky_complete
+                ):
+                    with unittest.mock.patch.object(
+                        retry_worker,
+                        "record_process_error",
+                        side_effect=flaky_record_err,
+                    ):
+                        with unittest.mock.patch("time.sleep"):
+                            retry_worker.std_run()
+            finally:
+                sys.argv = orig_argv
+
+            self.assertEqual(comp_calls["n"], 2)
+            self.assertEqual(err_calls["n"], 2)
+            retry_status = gen_retry.get_jobs_status()
+            self.assertEqual(retry_status["completed"], 1)
+            self.assertEqual(retry_status["errors"], 1)
+
+            # 10) check_db_info masks password in ConnectionError message
+            bad_conn_worker = _DummyWorker()
+            bad_conn_worker.queue_db_info = {
+                "db_conn_str": "postgresql+psycopg2://user:topsecret@127.0.0.1:1/missing",
+                "db_table_name": "task_regress",
+            }
+            with unittest.mock.patch.object(
+                bad_conn_worker,
+                "_get_engine",
+                side_effect=sqlalchemy.exc.OperationalError(
+                    "connect", {}, Exception("refused")
+                ),
+            ):
+                with self.assertRaises(ConnectionError) as conn_ctx:
+                    bad_conn_worker.check_db_info()
+                self.assertNotIn("topsecret", str(conn_ctx.exception))
+                self.assertIn("***", str(conn_ctx.exception))
 
     def test_gen_template_all_variants_and_overwrite(self):
         script_path = os.path.abspath(

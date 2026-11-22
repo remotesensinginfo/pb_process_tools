@@ -27,7 +27,7 @@ See other source files for details
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 12/11/2018
-# Version: 4.0.0
+# Version: 4.0.1
 
 import json
 import logging
@@ -37,12 +37,12 @@ import sys
 
 PB_PROCESS_TOOLS_VERSION_MAJOR = 4
 PB_PROCESS_TOOLS_VERSION_MINOR = 0
-PB_PROCESS_TOOLS_VERSION_PATCH = 0
+PB_PROCESS_TOOLS_VERSION_PATCH = 1
 
-PB_PROCESS_TOOLS_VERSION = "{}.{}.{}".format(
-    PB_PROCESS_TOOLS_VERSION_MAJOR,
-    PB_PROCESS_TOOLS_VERSION_MINOR,
-    PB_PROCESS_TOOLS_VERSION_PATCH,
+PB_PROCESS_TOOLS_VERSION = (
+    f"{PB_PROCESS_TOOLS_VERSION_MAJOR}."
+    f"{PB_PROCESS_TOOLS_VERSION_MINOR}."
+    f"{PB_PROCESS_TOOLS_VERSION_PATCH}"
 )
 PB_PROCESS_TOOLS_VERSION_INFO = (
     PB_PROCESS_TOOLS_VERSION_MAJOR,
@@ -53,13 +53,13 @@ PB_PROCESS_TOOLS_VERSION_OBJ = PB_PROCESS_TOOLS_VERSION_INFO
 __version__ = PB_PROCESS_TOOLS_VERSION
 
 py_sys_version = sys.version_info
-py_sys_version_str = "{}.{}".format(py_sys_version.major, py_sys_version.minor)
+py_sys_version_str = f"{py_sys_version.major}.{py_sys_version.minor}"
 py_sys_version_flt = float(py_sys_version_str)
 
 PB_PROCESS_TOOLS_COPYRIGHT_YEAR = "2018"
 PB_PROCESS_TOOLS_COPYRIGHT_NAMES = "Pete Bunting"
 
-PB_PROCESS_TOOLS_SUPPORT_EMAIL = "rsgislib-support@googlegroups.com"
+PB_PROCESS_TOOLS_SUPPORT_EMAIL = "petebunting@mac.com"
 
 _LOG_LEVEL_MAP = {
     "INFO": logging.INFO,
@@ -72,13 +72,13 @@ _LOG_LEVEL_MAP = {
 pbpt_log_level = os.getenv("PBPT_LOG_LVL") or os.getenv("PBTP_LOG_LVL") or "INFO"
 if pbpt_log_level.upper() not in _LOG_LEVEL_MAP:
     raise ValueError(
-        "Logging level specified ('{}') is not recognised.".format(pbpt_log_level)
+        f"Logging level specified ('{pbpt_log_level}') is not recognised."
     )
 log_default_level = _LOG_LEVEL_MAP[pbpt_log_level.upper()]
 
 log_config_path = os.getenv("PBPT_LOG_CFG", None)
 if (log_config_path is not None) and os.path.exists(log_config_path):
-    with open(log_config_path, "rt") as f:
+    with open(log_config_path, "rt", encoding="utf-8") as f:
         config = json.load(f)
     logging.config.dictConfig(config)
 else:

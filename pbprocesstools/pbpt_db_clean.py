@@ -25,7 +25,7 @@ up leftover PostgreSQL job queue tables created by pb_process_tools.
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 20/11/2026
-# Version: 4.0.0
+# Version: 4.0.1
 
 import argparse
 import datetime
@@ -159,6 +159,7 @@ class PBPTDatabaseCleaner(_DBSessionMixin):
         inspector: sqlalchemy.Inspector,
         schema: Optional[str] = None,
         all_schemas: bool = False,
+        tables: Optional[list[str]] = None,
     ) -> list[Optional[str]]:
         if all_schemas:
             raw_schemas = inspector.get_schema_names()
@@ -171,9 +172,29 @@ class PBPTDatabaseCleaner(_DBSessionMixin):
             ]
 
         clean_schema = _normalize_schema(schema)
+        explicit_schemas: list[str] = []
+        has_unqualified = False
+        if tables:
+            for target in tables:
+                target_clean = target.strip()
+                if "." in target_clean:
+                    sch_part = _normalize_schema(target_clean.split(".", 1)[0])
+                    if sch_part and sch_part not in explicit_schemas:
+                        explicit_schemas.append(sch_part)
+                else:
+                    has_unqualified = True
+
+        target_schemas: list[Optional[str]] = []
         if clean_schema is not None:
-            return [clean_schema]
-        return [None]
+            target_schemas.append(clean_schema)
+        elif (not explicit_schemas) or has_unqualified:
+            target_schemas.append(None)
+
+        for sch_part in explicit_schemas:
+            if sch_part not in target_schemas:
+                target_schemas.append(sch_part)
+
+        return target_schemas
 
     def _matches_filters(
         self,
@@ -205,6 +226,137 @@ class PBPTDatabaseCleaner(_DBSessionMixin):
                 return False
         return True
 
+    @staticmethod
+    def _query_table_size_bytes(
+        engine: sqlalchemy.Engine,
+        ses: sqlalchemy.orm.Session,
+        sch: Optional[str],
+        tbl_name: str,
+    ) -> Optional[int]:
+        if engine.dialect.name != "postgresql":
+            return None
+        preparer = engine.dialect.identifier_preparer
+        quoted_tbl = preparer.quote(tbl_name)
+        qual = f"{preparer.quote(sch)}.{quoted_tbl}" if sch else quoted_tbl
+        try:
+            with ses.begin_nested():
+                size_bytes = ses.execute(
+                    sqlalchemy.text("SELECT pg_total_relation_size(:relname)"),
+                    {"relname": qual},
+                ).scalar()
+            return int(size_bytes) if size_bytes is not None else None
+        except sqlalchemy.exc.SQLAlchemyError as err:
+            logger.debug(
+                "Could not query pg_total_relation_size for %s: %s", qual, err
+            )
+            return None
+
+    def _inspect_queue_table(
+        self,
+        engine: sqlalchemy.Engine,
+        ses: sqlalchemy.orm.Session,
+        sch: Optional[str],
+        tbl_name: str,
+        now: datetime.datetime,
+    ) -> dict:
+        tbl_ref = _make_queue_table_ref(tbl_name, schema=sch)
+        stats_stmt = sqlalchemy.select(
+            sqlalchemy.func.count(tbl_ref.c.PID),  # pylint: disable=not-callable
+            sqlalchemy.func.sum(
+                sqlalchemy.case(
+                    (
+                        sqlalchemy.and_(
+                            tbl_ref.c.Started.is_(False),
+                            tbl_ref.c.Completed.is_(False),
+                            tbl_ref.c.Error.is_(False),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            sqlalchemy.func.sum(
+                sqlalchemy.case(
+                    (
+                        sqlalchemy.and_(
+                            tbl_ref.c.Started.is_(True),
+                            tbl_ref.c.Completed.is_(False),
+                            tbl_ref.c.Error.is_(False),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            sqlalchemy.func.sum(
+                sqlalchemy.case((tbl_ref.c.Completed.is_(True), 1), else_=0)
+            ),
+            sqlalchemy.func.sum(
+                sqlalchemy.case((tbl_ref.c.Checked.is_(True), 1), else_=0)
+            ),
+            sqlalchemy.func.sum(
+                sqlalchemy.case((tbl_ref.c.Error.is_(True), 1), else_=0)
+            ),
+            sqlalchemy.func.max(tbl_ref.c.Start),
+            sqlalchemy.func.max(tbl_ref.c.End),
+        )
+        (
+            total,
+            pending,
+            running,
+            completed,
+            checked,
+            errors,
+            max_start,
+            max_end,
+        ) = ses.execute(stats_stmt).one()
+
+        total = int(total or 0)
+        pending = int(pending or 0)
+        running = int(running or 0)
+        completed = int(completed or 0)
+        checked = int(checked or 0)
+        errors = int(errors or 0)
+
+        candidates = [t for t in (max_start, max_end) if t is not None]
+        last_activity = max(candidates) if candidates else None
+        age_days = (
+            (now - last_activity).total_seconds() / 86400.0
+            if last_activity is not None
+            else None
+        )
+
+        if total == 0:
+            state = "EMPTY"
+        elif pending > 0 or running > 0:
+            state = "ACTIVE"
+        elif errors > 0:
+            state = "FINISHED_WITH_ERRORS"
+        else:
+            state = "COMPLETED"
+
+        size_bytes = self._query_table_size_bytes(engine, ses, sch, tbl_name)
+        full_name = f"{sch}.{tbl_name}" if sch else tbl_name
+        return {
+            "schema": sch,
+            "table": tbl_name,
+            "full_name": full_name,
+            "total": total,
+            "pending": pending,
+            "running": running,
+            "completed": completed,
+            "checked": checked,
+            "errors": errors,
+            "state": state,
+            "last_activity": (
+                last_activity.isoformat(sep=" ", timespec="seconds")
+                if last_activity is not None
+                else None
+            ),
+            "age_days": round(age_days, 2) if age_days is not None else None,
+            "size_bytes": size_bytes,
+        }
+
     def list_queue_tables(
         self,
         schema: Optional[str] = None,
@@ -222,14 +374,18 @@ class PBPTDatabaseCleaner(_DBSessionMixin):
             engine = self._get_engine()
             inspector = sqlalchemy.inspect(engine)
             target_schemas = self._get_target_schemas(
-                engine, inspector, schema=schema, all_schemas=all_schemas
+                engine,
+                inspector,
+                schema=schema,
+                all_schemas=all_schemas,
+                tables=tables,
             )
 
             with self._session_scope() as ses:
                 for sch in target_schemas:
                     try:
                         table_names = sorted(inspector.get_table_names(schema=sch))
-                    except Exception:
+                    except sqlalchemy.exc.SQLAlchemyError:
                         continue
 
                     for tbl_name in table_names:
@@ -239,132 +395,8 @@ class PBPTDatabaseCleaner(_DBSessionMixin):
                             continue
                         if not is_pbpt_queue_table(inspector, tbl_name, schema=sch):
                             continue
-
-                        tbl_ref = _make_queue_table_ref(tbl_name, schema=sch)
-                        stats_stmt = sqlalchemy.select(
-                            sqlalchemy.func.count(tbl_ref.c.PID),
-                            sqlalchemy.func.sum(
-                                sqlalchemy.case(
-                                    (
-                                        sqlalchemy.and_(
-                                            tbl_ref.c.Started.is_(False),
-                                            tbl_ref.c.Completed.is_(False),
-                                        ),
-                                        1,
-                                    ),
-                                    else_=0,
-                                )
-                            ),
-                            sqlalchemy.func.sum(
-                                sqlalchemy.case(
-                                    (
-                                        sqlalchemy.and_(
-                                            tbl_ref.c.Started.is_(True),
-                                            tbl_ref.c.Completed.is_(False),
-                                            tbl_ref.c.Error.is_(False),
-                                        ),
-                                        1,
-                                    ),
-                                    else_=0,
-                                )
-                            ),
-                            sqlalchemy.func.sum(
-                                sqlalchemy.case(
-                                    (tbl_ref.c.Completed.is_(True), 1), else_=0
-                                )
-                            ),
-                            sqlalchemy.func.sum(
-                                sqlalchemy.case(
-                                    (tbl_ref.c.Checked.is_(True), 1), else_=0
-                                )
-                            ),
-                            sqlalchemy.func.sum(
-                                sqlalchemy.case(
-                                    (tbl_ref.c.Error.is_(True), 1), else_=0
-                                )
-                            ),
-                            sqlalchemy.func.max(tbl_ref.c.Start),
-                            sqlalchemy.func.max(tbl_ref.c.End),
-                        )
-                        (
-                            total,
-                            pending,
-                            running,
-                            completed,
-                            checked,
-                            errors,
-                            max_start,
-                            max_end,
-                        ) = ses.execute(stats_stmt).one()
-
-                        total = int(total or 0)
-                        pending = int(pending or 0)
-                        running = int(running or 0)
-                        completed = int(completed or 0)
-                        checked = int(checked or 0)
-                        errors = int(errors or 0)
-
-                        candidates = [t for t in (max_start, max_end) if t is not None]
-                        last_activity = max(candidates) if candidates else None
-                        age_days = (
-                            (now - last_activity).total_seconds() / 86400.0
-                            if last_activity is not None
-                            else None
-                        )
-
-                        if total == 0:
-                            state = "EMPTY"
-                        elif pending > 0 or running > 0:
-                            state = "ACTIVE"
-                        elif errors > 0:
-                            state = "FINISHED_WITH_ERRORS"
-                        else:
-                            state = "COMPLETED"
-
-                        size_bytes = None
-                        if engine.dialect.name == "postgresql":
-                            try:
-                                qual = (
-                                    f'"{sch}"."{tbl_name}"'
-                                    if sch
-                                    else f'"{tbl_name}"'
-                                )
-                                size_bytes = ses.execute(
-                                    sqlalchemy.text(
-                                        "SELECT pg_total_relation_size(:relname)"
-                                    ),
-                                    {"relname": qual},
-                                ).scalar()
-                                if size_bytes is not None:
-                                    size_bytes = int(size_bytes)
-                            except Exception:
-                                size_bytes = None
-
-                        full_name = f"{sch}.{tbl_name}" if sch else tbl_name
                         results.append(
-                            {
-                                "schema": sch,
-                                "table": tbl_name,
-                                "full_name": full_name,
-                                "total": total,
-                                "pending": pending,
-                                "running": running,
-                                "completed": completed,
-                                "checked": checked,
-                                "errors": errors,
-                                "state": state,
-                                "last_activity": (
-                                    last_activity.isoformat(sep=" ", timespec="seconds")
-                                    if last_activity is not None
-                                    else None
-                                ),
-                                "age_days": (
-                                    round(age_days, 2)
-                                    if age_days is not None
-                                    else None
-                                ),
-                                "size_bytes": size_bytes,
-                            }
+                            self._inspect_queue_table(engine, ses, sch, tbl_name, now)
                         )
         finally:
             self.dispose_engine()
@@ -429,6 +461,33 @@ class PBPTDatabaseCleaner(_DBSessionMixin):
 
         return selected
 
+    @staticmethod
+    def _drop_empty_schemas(
+        engine: sqlalchemy.Engine, touched_schemas: set[str]
+    ) -> list[str]:
+        dropped_schemas = []
+        inspector = sqlalchemy.inspect(engine)
+        for sch in sorted(touched_schemas):
+            if sch in PROTECTED_SCHEMAS or sch.startswith("pg_"):
+                continue
+            remaining_tables = inspector.get_table_names(schema=sch)
+            remaining_views = inspector.get_view_names(schema=sch)
+            if not remaining_tables and not remaining_views:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            sqlalchemy.schema.DropSchema(sch, if_exists=True)
+                        )
+                    dropped_schemas.append(sch)
+                    logger.info("Dropped empty schema '%s'.", sch)
+                except sqlalchemy.exc.SQLAlchemyError as err:
+                    logger.warning(
+                        "Could not drop schema '%s' (it may still contain objects): %s",
+                        sch,
+                        err,
+                    )
+        return dropped_schemas
+
     def drop_tables(
         self,
         table_infos: list[dict],
@@ -475,21 +534,12 @@ class PBPTDatabaseCleaner(_DBSessionMixin):
                 if item["schema"]:
                     touched_schemas.add(item["schema"])
 
-            if drop_empty_schemas and touched_schemas and (
-                engine.dialect.name == "postgresql"
+            if (
+                drop_empty_schemas
+                and touched_schemas
+                and (engine.dialect.name == "postgresql")
             ):
-                inspector = sqlalchemy.inspect(engine)
-                for sch in sorted(touched_schemas):
-                    if sch in PROTECTED_SCHEMAS or sch.startswith("pg_"):
-                        continue
-                    remaining = inspector.get_table_names(schema=sch)
-                    if not remaining:
-                        with engine.begin() as conn:
-                            conn.execute(
-                                sqlalchemy.schema.DropSchema(sch, if_exists=True)
-                            )
-                        dropped_schemas.append(sch)
-                        logger.info("Dropped empty schema '%s'.", sch)
+                dropped_schemas = self._drop_empty_schemas(engine, touched_schemas)
 
             if vacuum:
                 vacuumed = self._run_vacuum(engine)
@@ -577,6 +627,7 @@ def _format_table_report(tables: list[dict]) -> str:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser for pbpt_clean_db."""
     parser = argparse.ArgumentParser(
         prog="pbpt_clean_db.py",
         description=(
@@ -717,27 +768,98 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
-    configure_logging()
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
-
-    cleaner = PBPTDatabaseCleaner(
-        db_conn_file=args.dbfile, db_conn_str=args.db_conn_str
-    )
-
-    if args.interactive:
-        use_all = not any(
-            (
-                args.tables,
-                args.pattern,
-                args.completed,
-                args.empty,
-                args.finished,
-                args.older_than is not None,
-                args.all,
-            )
+def _run_interactive_mode(
+    cleaner: PBPTDatabaseCleaner, args: argparse.Namespace
+) -> int:
+    use_all = not any(
+        (
+            args.tables,
+            args.pattern,
+            args.completed,
+            args.empty,
+            args.finished,
+            args.older_than is not None,
+            args.all,
         )
+    )
+    candidates = cleaner.select_tables_for_cleanup(
+        schema=args.schema,
+        all_schemas=args.all_schemas,
+        tables=args.tables,
+        pattern=args.pattern,
+        completed=args.completed,
+        empty=args.empty,
+        finished=args.finished,
+        older_than_days=args.older_than,
+        all_tables=args.all or use_all,
+    )
+    if not candidates:
+        print("No matching pb_process_tools queue tables found.")
+        if args.vacuum and not args.dry_run:
+            cleaner.vacuum_database()
+        return 0
+
+    chosen = []
+    for item in candidates:
+        if item["state"] == "ACTIVE" and not args.force:
+            print(
+                f"Skipping active table '{item['full_name']}' "
+                f"(pending={item['pending']}, running={item['running']}; "
+                f"use --force to allow dropping)."
+            )
+            continue
+        resp = (
+            input(
+                f"Drop '{item['full_name']}' "
+                f"[state={item['state']}, total={item['total']}, "
+                f"errors={item['errors']}, last={item['last_activity'] or '-'}]? "
+                "[y/N/q]: "
+            )
+            .strip()
+            .lower()
+        )
+        if resp in ("q", "quit"):
+            break
+        if resp in ("y", "yes"):
+            chosen.append(item)
+
+    if not chosen:
+        print("No tables selected for removal.")
+        if args.vacuum and not args.dry_run:
+            cleaner.vacuum_database()
+        return 0
+
+    summary = cleaner.drop_tables(
+        chosen,
+        force=args.force,
+        dry_run=args.dry_run,
+        drop_empty_schemas=args.drop_empty_schemas,
+        vacuum=args.vacuum,
+    )
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    elif args.dry_run:
+        print("[DRY RUN] Would drop: " + ", ".join(summary["dropped"]))
+    else:
+        print(
+            f"Dropped {len(summary['dropped'])} table(s): "
+            f"{', '.join(summary['dropped'])}"
+        )
+        if summary["dropped_schemas"]:
+            print(
+                "Dropped empty schema(s): " + ", ".join(summary["dropped_schemas"])
+            )
+        if summary["vacuumed"]:
+            print("Completed VACUUM ANALYZE.")
+    return 0
+
+
+def _run_drop_mode(
+    cleaner: PBPTDatabaseCleaner,
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> int:
+    try:
         candidates = cleaner.select_tables_for_cleanup(
             schema=args.schema,
             all_schemas=args.all_schemas,
@@ -747,166 +869,118 @@ def main(argv: Optional[list[str]] = None) -> int:
             empty=args.empty,
             finished=args.finished,
             older_than_days=args.older_than,
-            all_tables=args.all or use_all,
+            all_tables=args.all,
         )
-        if not candidates:
-            print("No matching pb_process_tools queue tables found.")
-            if args.vacuum and not args.dry_run:
-                cleaner.vacuum_database()
-            return 0
+    except ValueError as err:
+        parser.error(str(err))
 
-        chosen = []
-        for item in candidates:
-            if item["state"] == "ACTIVE" and not args.force:
-                print(
-                    f"Skipping active table '{item['full_name']}' "
-                    f"(pending={item['pending']}, running={item['running']}; "
-                    f"use --force to allow dropping)."
-                )
-                continue
+    if not candidates:
+        summary = {
+            "dry_run": bool(args.dry_run),
+            "dropped": [],
+            "skipped_active": [],
+            "dropped_schemas": [],
+            "vacuumed": cleaner.vacuum_database(dry_run=args.dry_run)
+            if args.vacuum
+            else False,
+        }
+        if args.json:
+            print(json.dumps(summary, indent=2))
+        else:
+            print("No matching pb_process_tools queue tables found to drop.")
+        return 0
+
+    if not args.dry_run and not args.yes:
+        droppable = [
+            c for c in candidates if (c["state"] != "ACTIVE" or args.force)
+        ]
+        if not droppable:
+            skipped_names = ", ".join(c["full_name"] for c in candidates)
+            print(
+                f"All matching tables are ACTIVE and were skipped (use --force): "
+                f"{skipped_names}"
+            )
+            return 0
+        if sys.stdin.isatty():
+            print(_format_table_report(droppable))
             resp = (
-                input(
-                    f"Drop '{item['full_name']}' "
-                    f"[state={item['state']}, total={item['total']}, "
-                    f"errors={item['errors']}, last={item['last_activity'] or '-'}]? "
-                    "[y/N/q]: "
-                )
+                input(f"Drop these {len(droppable)} queue table(s)? [y/N]: ")
                 .strip()
                 .lower()
             )
-            if resp in ("q", "quit"):
-                break
-            if resp in ("y", "yes"):
-                chosen.append(item)
-
-        if not chosen:
-            print("No tables selected for removal.")
-            if args.vacuum and not args.dry_run:
-                cleaner.vacuum_database()
-            return 0
-
-        summary = cleaner.drop_tables(
-            chosen,
-            force=args.force,
-            dry_run=args.dry_run,
-            drop_empty_schemas=args.drop_empty_schemas,
-            vacuum=args.vacuum,
-        )
-        if args.json:
-            print(json.dumps(summary, indent=2))
-        elif args.dry_run:
-            print("[DRY RUN] Would drop: " + ", ".join(summary["dropped"]))
-        else:
-            print(f"Dropped {len(summary['dropped'])} table(s): {', '.join(summary['dropped'])}")
-            if summary["dropped_schemas"]:
-                print(
-                    "Dropped empty schema(s): "
-                    + ", ".join(summary["dropped_schemas"])
-                )
-            if summary["vacuumed"]:
-                print("Completed VACUUM ANALYZE.")
-        return 0
-
-    if args.drop:
-        try:
-            candidates = cleaner.select_tables_for_cleanup(
-                schema=args.schema,
-                all_schemas=args.all_schemas,
-                tables=args.tables,
-                pattern=args.pattern,
-                completed=args.completed,
-                empty=args.empty,
-                finished=args.finished,
-                older_than_days=args.older_than,
-                all_tables=args.all,
-            )
-        except ValueError as err:
-            parser.error(str(err))
-
-        if not candidates:
-            summary = {
-                "dry_run": bool(args.dry_run),
-                "dropped": [],
-                "skipped_active": [],
-                "dropped_schemas": [],
-                "vacuumed": cleaner.vacuum_database(dry_run=args.dry_run)
-                if args.vacuum
-                else False,
-            }
-            if args.json:
-                print(json.dumps(summary, indent=2))
-            else:
-                print("No matching pb_process_tools queue tables found to drop.")
-            return 0
-
-        if not args.dry_run and not args.yes:
-            droppable = [
-                c for c in candidates if (c["state"] != "ACTIVE" or args.force)
-            ]
-            if not droppable:
-                skipped_names = ", ".join(c["full_name"] for c in candidates)
-                print(
-                    f"All matching tables are ACTIVE and were skipped (use --force): "
-                    f"{skipped_names}"
-                )
+            if resp not in ("y", "yes"):
+                print("Aborted.")
                 return 0
-            if sys.stdin.isatty():
-                print(_format_table_report(droppable))
-                resp = (
-                    input(f"Drop these {len(droppable)} queue table(s)? [y/N]: ")
-                    .strip()
-                    .lower()
-                )
-                if resp not in ("y", "yes"):
-                    print("Aborted.")
-                    return 0
-            else:
-                parser.error("--drop requires --yes (-y) or --dry-run when non-interactive.")
+        else:
+            parser.error("--drop requires --yes (-y) or --dry-run when non-interactive.")
 
-        summary = cleaner.drop_tables(
-            candidates,
-            force=args.force,
-            dry_run=args.dry_run,
-            drop_empty_schemas=args.drop_empty_schemas,
-            vacuum=args.vacuum,
+    summary = cleaner.drop_tables(
+        candidates,
+        force=args.force,
+        dry_run=args.dry_run,
+        drop_empty_schemas=args.drop_empty_schemas,
+        vacuum=args.vacuum,
+    )
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    else:
+        if summary["skipped_active"]:
+            print(
+                "Skipped ACTIVE table(s) (use --force to drop): "
+                + ", ".join(summary["skipped_active"])
+            )
+        prefix = "[DRY RUN] Would drop" if args.dry_run else "Dropped"
+        if summary["dropped"]:
+            print(
+                f"{prefix} {len(summary['dropped'])} table(s): "
+                + ", ".join(summary["dropped"])
+            )
+        else:
+            print("No tables dropped.")
+        if summary["dropped_schemas"]:
+            print(
+                "Dropped empty schema(s): " + ", ".join(summary["dropped_schemas"])
+            )
+        if summary["vacuumed"]:
+            print("Completed VACUUM ANALYZE.")
+    return 0
+
+
+def _run_vacuum_mode(
+    cleaner: PBPTDatabaseCleaner, args: argparse.Namespace
+) -> int:
+    vacuumed = cleaner.vacuum_database(dry_run=args.dry_run)
+    if args.json:
+        print(
+            json.dumps(
+                {"vacuumed": vacuumed, "dry_run": bool(args.dry_run)}, indent=2
+            )
         )
-        if args.json:
-            print(json.dumps(summary, indent=2))
-        else:
-            if summary["skipped_active"]:
-                print(
-                    "Skipped ACTIVE table(s) (use --force to drop): "
-                    + ", ".join(summary["skipped_active"])
-                )
-            prefix = "[DRY RUN] Would drop" if args.dry_run else "Dropped"
-            if summary["dropped"]:
-                print(
-                    f"{prefix} {len(summary['dropped'])} table(s): "
-                    + ", ".join(summary["dropped"])
-                )
-            else:
-                print("No tables dropped.")
-            if summary["dropped_schemas"]:
-                print(
-                    "Dropped empty schema(s): "
-                    + ", ".join(summary["dropped_schemas"])
-                )
-            if summary["vacuumed"]:
-                print("Completed VACUUM ANALYZE.")
-        return 0
+    elif args.dry_run:
+        print("[DRY RUN] Would run VACUUM ANALYZE.")
+    elif vacuumed:
+        print("Completed VACUUM ANALYZE.")
+    else:
+        print("VACUUM ANALYZE skipped (PostgreSQL only).")
+    return 0
 
+
+def main(argv: Optional[list[str]] = None) -> int:
+    """CLI entrypoint for inspecting and cleaning pb_process_tools queue tables."""
+    configure_logging()
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
+    cleaner = PBPTDatabaseCleaner(
+        db_conn_file=args.dbfile, db_conn_str=args.db_conn_str
+    )
+
+    if args.interactive:
+        return _run_interactive_mode(cleaner, args)
+    if args.drop:
+        return _run_drop_mode(cleaner, args, parser)
     if args.vacuum and not args.list:
-        vacuumed = cleaner.vacuum_database(dry_run=args.dry_run)
-        if args.json:
-            print(json.dumps({"vacuumed": vacuumed, "dry_run": bool(args.dry_run)}, indent=2))
-        else:
-            if args.dry_run:
-                print("[DRY RUN] Would run VACUUM ANALYZE.")
-            elif vacuumed:
-                print("Completed VACUUM ANALYZE.")
-            else:
-                print("VACUUM ANALYZE skipped (PostgreSQL only).")
-        return 0
+        return _run_vacuum_mode(cleaner, args)
 
     # Default / --list mode
     tables = cleaner.list_queue_tables(

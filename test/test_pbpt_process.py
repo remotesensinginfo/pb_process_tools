@@ -23,6 +23,14 @@ class PBPTProcessToolsBaseTest(unittest.TestCase):
             "scene_2026_v1",
         )
         self.assertEqual(
+            self.tool.get_file_basename("/tmp/dir/archive.tar.gz"),
+            "archive.tar",
+        )
+        self.assertEqual(
+            self.tool.get_file_basename("/tmp/dir/archive.tar.gz", rm_n_exts=0),
+            "archive",
+        )
+        self.assertEqual(
             self.tool.get_file_basename(
                 "/tmp/my file!_name?.kea", check_valid=True
             ),
@@ -112,7 +120,7 @@ class PBPTProcessToolsBaseTest(unittest.TestCase):
             with self.assertRaises(Exception):
                 self.tool.find_first_file(nested, "*.tif", rtn_except=True)
 
-    def test_check_files_variants_and_rsgislib_checks(self):
+    def test_check_files_variants_and_rsgispy_checks(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ok, errs = self.tool.check_files({tmpdir: "filesize"})
             self.assertFalse(ok)
@@ -136,37 +144,31 @@ class PBPTProcessToolsBaseTest(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn(missing, errs)
 
-            with self.assertRaises(Exception):
+            with self.assertRaises(ValueError):
                 self.tool.check_files({nonempty_file: {"n_bands": 3}})
 
-            # Without rsgislib available, gdal_image / gdal_vector / hdf5 raise Exception
+            # Without rsgispy.tools.checkdatasets available, raises ImportError
             no_rsgis = {
-                "rsgislib": None,
-                "rsgislib.tools": None,
-                "rsgislib.tools.checkdatasets": None,
+                "rsgispy.tools.checkdatasets": None,
             }
             with unittest.mock.patch.dict(sys.modules, no_rsgis):
                 for fmt in ("gdal_image", "gdal_vector", "hdf5"):
-                    with self.assertRaises(Exception):
+                    with self.assertRaises(ImportError):
                         self.tool.check_files({nonempty_file: fmt})
 
-            # With mocked rsgislib.tools.checkdatasets, test both pass and fail for string and dict specs
-            fake_rsgis = types.ModuleType("rsgislib")
-            fake_tools = types.ModuleType("rsgislib.tools")
-            fake_chk = types.ModuleType("rsgislib.tools.checkdatasets")
-            fake_chk.run_check_gdal_image_file = unittest.mock.MagicMock(return_value=True)
-            fake_chk.run_check_gdal_vector_file = unittest.mock.MagicMock(return_value=True)
+            # With mocked rsgispy.tools.checkdatasets, test pass and fail for string and dict specs
+            fake_chk = types.ModuleType("rsgispy.tools.checkdatasets")
+            fake_chk.run_check_gdal_image_file = unittest.mock.MagicMock(
+                return_value=True
+            )
+            fake_chk.run_check_gdal_vector_file = unittest.mock.MagicMock(
+                return_value=True
+            )
             fake_chk.run_check_hdf5_file = unittest.mock.MagicMock(return_value=True)
-            fake_tools.checkdatasets = fake_chk
-            fake_rsgis.tools = fake_tools
 
             with unittest.mock.patch.dict(
                 sys.modules,
-                {
-                    "rsgislib": fake_rsgis,
-                    "rsgislib.tools": fake_tools,
-                    "rsgislib.tools.checkdatasets": fake_chk,
-                },
+                {"rsgispy.tools.checkdatasets": fake_chk},
             ):
                 ok, errs = self.tool.check_files(
                     {
@@ -174,26 +176,29 @@ class PBPTProcessToolsBaseTest(unittest.TestCase):
                         empty_file: {
                             "type": "gdal_image",
                             "n_bands": 3,
-                            "chk_proj": True,
-                            "epsg_code": 4326,
+                            "chk_proj": False,
                             "read_img": True,
                         },
                     }
                 )
                 self.assertTrue(ok)
                 self.assertEqual(errs, {})
+                # Verify epsg_code defaults to 0 when chk_proj=False in dict spec
+                dict_call = fake_chk.run_check_gdal_image_file.call_args_list[1]
+                self.assertEqual(dict_call.kwargs["epsg_code"], 0)
 
                 ok, errs = self.tool.check_files(
                     {
                         nonempty_file: "gdal_vector",
                         empty_file: {
                             "type": "gdal_vector",
-                            "chk_proj": True,
-                            "epsg_code": 27700,
+                            "chk_proj": False,
                         },
                     }
                 )
                 self.assertTrue(ok)
+                dict_vec_call = fake_chk.run_check_gdal_vector_file.call_args_list[1]
+                self.assertEqual(dict_vec_call.kwargs["epsg_code"], 0)
 
                 ok, errs = self.tool.check_files(
                     {
@@ -203,14 +208,19 @@ class PBPTProcessToolsBaseTest(unittest.TestCase):
                 )
                 self.assertTrue(ok)
 
-                # Simulate failing checks
+                # Simulate failing checks and verify distinct error messages
                 fake_chk.run_check_gdal_image_file.return_value = False
                 fake_chk.run_check_gdal_vector_file.return_value = False
                 fake_chk.run_check_hdf5_file.return_value = False
-                for fmt in ("gdal_image", "gdal_vector", "hdf5"):
+                for fmt, expected_word in (
+                    ("gdal_image", "Image"),
+                    ("gdal_vector", "Vector"),
+                    ("hdf5", "HDF5"),
+                ):
                     ok, errs = self.tool.check_files({nonempty_file: fmt})
                     self.assertFalse(ok)
                     self.assertIn(nonempty_file, errs)
+                    self.assertIn(expected_word, errs[nonempty_file])
 
 
 if __name__ == "__main__":

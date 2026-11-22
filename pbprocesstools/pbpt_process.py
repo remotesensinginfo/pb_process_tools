@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 """
-pb_process_tools - this file has classes for batch processing data
-
-See other source files for details
+pb_process_tools - Base utilities for batch processing data.
 """
 # This file is part of 'pb_process_tools'
 # A set of utilities for batch processing data
@@ -27,162 +25,111 @@ See other source files for details
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 25/03/2020
-# Version: 1.0
-#
-# History:
-# Version 1.0 - Created.
+# Version: 4.0.1
 
-import glob
+import importlib
 import os
 import pathlib
 import shutil
-import string
-import uuid
 from abc import ABC
 from datetime import datetime
 
+import rsgispy.tools.filetools
+import rsgispy.tools.strings
+
 
 class PBPTProcessToolsBase(ABC):
+    """Base helper class providing UID, directory, file-search, and output checks."""
+
     def __init__(self, uid_len=6):
         self.uid = self.uid_generator(size=uid_len)
         super().__init__()
 
     def uid_generator(self, size=6):
         """
-        A function which will generate a 'random' string of the specified length
-        based on the UUID
+        Generate a random hexadecimal string of the specified length based on a UUID.
 
-        :param size: the length of the returned string.
-        :return: string of length size.
-
+        :param size: The length of the returned string.
+        :return: String of length ``size``.
         """
-        randomStr = str(uuid.uuid4()).replace("-", "")
-        return randomStr[0:size]
+        return rsgispy.tools.strings.uid_generator(size=size)
 
     def generate_readable_timestamp_str(self):
         """
-        A function which generates a timestamp string which is suitable
-        to include within a file name.
+        Generate a timestamp string suitable for inclusion within a file name.
 
-        :return: string.
-
+        :return: Timestamp string formatted as ``YYYYMMDD_HHMMSS``.
         """
-        now_time = datetime.now()
-        return now_time.strftime("%Y%m%d_%H%M%S")
+        return datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def find_file(self, dir_path, file_search):
         """
-        Search for a single file with a path using glob. Therefore, the file
-        path returned is a true path. Within the fileSearch provide the file
-        name with '*' as wildcard(s). Returns None is not found.
+        Search for a single file matching ``file_search`` in ``dir_path``.
 
-        :param dir_path: the file path(s) to be searched. Can be either a single
-                         string or a list of file paths to be searched.
-        :param file_search: the file search string.
-        :return: a string with the file path found or None is either no file paths are
-                 found or multiple paths are found.
-
+        :param dir_path: Directory path or iterable of directory paths to search.
+        :param file_search: Glob search pattern (with ``*`` wildcards).
+        :return: Single matching file path, or ``None`` if zero or multiple files match.
         """
         if isinstance(dir_path, str):
-            dir_path = [dir_path]
+            return rsgispy.tools.filetools.find_file_none(dir_path, file_search)
 
-        files = []
         for c_dir_path in dir_path:
-            files = glob.glob(os.path.join(glob.escape(c_dir_path), file_search))
-            if len(files) > 0:
-                break
-
-        if len(files) != 1:
-            return None
-        return files[0]
+            found = rsgispy.tools.filetools.find_file_none(c_dir_path, file_search)
+            if found is not None:
+                return found
+        return None
 
     def find_first_file(self, dir_path, file_search, rtn_except=True):
         """
-        Search for a single file with a path using glob. Therefore, the file
-        path returned is a true path. Within the fileSearch provide the file
-        name with '*' as wildcard(s).
+        Walk ``dir_path`` recursively and return the first single glob match.
 
-        :param dir_path: The directory within which to search, note that the search will
-                        be within sub-directories within the base directory until a
-                        file meeting the search criteria are met.
-        :param file_search: The file search string in the file name and must contain
-                           a wild character (i.e., ``*``).
-        :param rtn_except: If True then an exception will be raised if no file or
-                           multiple files are found (default). If False then None will
-                           be returned rather than an exception raised.
-        :return: The file found (or None if rtn_except=False)
-
+        :param dir_path: Base directory path to search.
+        :param file_search: Filename glob pattern (e.g., ``'*.tif'``).
+        :param rtn_except: If True (default), raise an exception when zero or multiple
+                           files match; otherwise return ``None``.
+        :return: Matched file path, or ``None`` if ``rtn_except=False``.
         """
-        matched_files = []
-        for root, dirs, _walk_files in os.walk(dir_path):
-            matched_files = glob.glob(os.path.join(glob.escape(root), file_search))
-            if len(matched_files) > 0:
-                break
-        out_file = None
-        if len(matched_files) == 1:
-            out_file = matched_files[0]
-        elif rtn_except:
-            raise Exception(
-                "Could not find a single file ({0}) in {1}; "
-                "found {2} files.".format(file_search, dir_path, len(matched_files))
-            )
-        return out_file
+        return rsgispy.tools.filetools.find_first_file(
+            dir_path, file_search, rtn_except=rtn_except
+        )
 
-    def get_file_basename(self, file_path, check_valid=False, n_comps=0):
+    def get_file_basename(
+        self, file_path, check_valid=False, n_comps=0, rm_n_exts=1
+    ):
         """
-        Uses os.path module to return file basename (i.e., path and extension removed)
+        Return the basename of ``file_path`` with directory path and extension(s) removed.
 
-        :param file_path: string for the input file name and path
-        :param check_valid: if True then resulting basename will be checked for
-                            punctuation characters (other than underscores) and spaces,
-                            punctuation will be either removed and spaces changed to
-                            an underscore. (Default = False)
-        :param n_comps: if > 0 then the resulting basename will be split using
-                        underscores and the return based name will be defined using the
-                        n_comps components split by under scores.
-        :return: basename for file
-
+        :param file_path: Input file path.
+        :param check_valid: If True, replace spaces with underscores and strip
+                            punctuation other than ``_`` and ``-`` (Default = False).
+        :param n_comps: If > 0, split the basename on ``_`` and keep the first
+                        ``n_comps`` components (Default = 0).
+        :param rm_n_exts: Number of dot-separated extensions to strip (Default = 1;
+                          pass 0 to strip all extensions).
+        :return: Extracted basename string.
         """
-        basename = os.path.splitext(os.path.basename(file_path))[0]
-        if check_valid:
-            basename = basename.replace(" ", "_")
-            for punct in string.punctuation:
-                if (punct != "_") and (punct != "-"):
-                    basename = basename.replace(punct, "")
-        if n_comps > 0:
-            basename_split = basename.split("_")
-            if len(basename_split) < n_comps:
-                raise Exception(
-                    "The number of components specified is more than "
-                    "the number of components in the basename."
-                )
-            basename = "_".join(basename_split[:n_comps])
-        return basename
+        return rsgispy.tools.filetools.get_file_basename(
+            file_path,
+            check_valid=check_valid,
+            n_comps=n_comps,
+            rm_n_exts=rm_n_exts,
+        )
 
     def create_dir(self, dir_path, use_abs_path=True, add_uid=False):
         """
-        A function which creates a temporary directory and optionally adds
-        a unique ID to the last directory within the path so each time the
-        process executes a unique temporary is created.
+        Create a directory and optionally append this instance's UID to its name.
 
-        :param dir_path: an input string with the directory path to be created.
-        :param use_abs_path: a boolean specifying whether the input path should be
-                             converted to an absolute path if a relative path has
-                             been provided. The default is True.
-        :param add_uid: A boolean specifying whether a UID should be added to
-                        the tmp_dir_path
-        :return: (str, bool) returns the path of the temporary directory created and
-                 boolean as to whether the directory was created or already
-                 existed (True = created).
-
+        :param dir_path: Directory path to create.
+        :param use_abs_path: If True (default), resolve relative paths to absolute paths.
+        :param add_uid: If True, append ``_<uid>`` to the final directory name.
+        :return: Tuple of ``(dir_path_str, created_bool)``.
         """
         dir_path_obj = pathlib.Path(dir_path)
         if use_abs_path:
             dir_path_obj = dir_path_obj.resolve()
 
         if add_uid:
-            last_dir_name = dir_path_obj.name
-            last_dir_name_uid = "{}_{}".format(last_dir_name, self.uid)
+            last_dir_name_uid = f"{dir_path_obj.name}_{self.uid}"
             dir_path_obj = dir_path_obj.parent.joinpath(last_dir_name_uid)
 
         created = False
@@ -193,10 +140,9 @@ class PBPTProcessToolsBase(ABC):
 
     def remove_dir(self, dir_path):
         """
-        A function which deletes the in_dir and its contents.
+        Delete ``dir_path`` and all of its contents if it exists.
 
-        :param dir_path: an input string with the directory path to be removed.
-
+        :param dir_path: Directory path to remove.
         """
         dir_path_obj = pathlib.Path(dir_path)
         if dir_path_obj.exists():
@@ -205,7 +151,7 @@ class PBPTProcessToolsBase(ABC):
     @staticmethod
     def has_files(dir_path: str, recursive: bool = False) -> bool:
         """
-        Check if the directory contains at least one file.
+        Check if the directory contains at least one regular file.
 
         :param dir_path: Path to the directory to inspect.
         :param recursive: If True, searches subdirectories as well.
@@ -218,156 +164,139 @@ class PBPTProcessToolsBase(ABC):
                 f"The path '{dir_path}' is not a valid directory."
             )
 
-        # Use rglob for recursive search, or iterdir for top-level only
         iterator = path.rglob("*") if recursive else path.iterdir()
-
-        # Returns True as soon as the first regular file is encountered
         return any(item.is_file() for item in iterator)
+
+    @staticmethod
+    def _import_checkdatasets(file_type: str):
+        try:
+            return importlib.import_module("rsgispy.tools.checkdatasets")
+        except ImportError as err:
+            raise ImportError(
+                f"To check a '{file_type}' file is valid, rsgispy.tools.checkdatasets "
+                f"must be available."
+            ) from err
+
+    @classmethod
+    def _check_gdal_image(cls, filepath: str, file_spec, dict_params: bool):
+        chk_mod = cls._import_checkdatasets("gdal_image")
+        if dict_params:
+            chk_proj = file_spec.get("chk_proj", False)
+            epsg_code = file_spec.get("epsg_code", 0) if chk_proj else 0
+            read_img = file_spec.get("read_img", False)
+            smpl_n_pxls = file_spec.get("smpl_n_pxls", 10) if read_img else 10
+            file_ok = chk_mod.run_check_gdal_image_file(
+                filepath,
+                check_bands=True,
+                n_bands=file_spec.get("n_bands", 0),
+                chk_proj=chk_proj,
+                epsg_code=epsg_code,
+                read_img=read_img,
+                smpl_n_pxls=smpl_n_pxls,
+                calc_chk_sum=file_spec.get("calc_chk_sum", False),
+                max_file_size=file_spec.get("max_file_size", None),
+                rm_err=False,
+                print_err=False,
+                timeout=file_spec.get("timeout", 4),
+            )
+        else:
+            file_ok = chk_mod.run_check_gdal_image_file(
+                filepath,
+                check_bands=True,
+                rm_err=False,
+                print_err=False,
+            )
+        return None if file_ok else f"Error with GDAL Image File: {filepath}"
+
+    @classmethod
+    def _check_gdal_vector(cls, filepath: str, file_spec, dict_params: bool):
+        chk_mod = cls._import_checkdatasets("gdal_vector")
+        if dict_params:
+            chk_proj = file_spec.get("chk_proj", False)
+            epsg_code = file_spec.get("epsg_code", 0) if chk_proj else 0
+            file_ok = chk_mod.run_check_gdal_vector_file(
+                filepath,
+                chk_proj=chk_proj,
+                epsg_code=epsg_code,
+                max_file_size=file_spec.get("max_file_size", None),
+                rm_err=False,
+                print_err=False,
+                multi_file=False,
+                timeout=file_spec.get("timeout", 4),
+            )
+        else:
+            file_ok = chk_mod.run_check_gdal_vector_file(
+                filepath, rm_err=False, print_err=False
+            )
+        return None if file_ok else f"Error with GDAL Vector File: {filepath}"
+
+    @classmethod
+    def _check_hdf5(cls, filepath: str, file_spec, dict_params: bool):
+        chk_mod = cls._import_checkdatasets("hdf5")
+        timeout = file_spec.get("timeout", 4) if dict_params else 4
+        file_ok = chk_mod.run_check_hdf5_file(
+            filepath, rm_err=False, print_err=False, timeout=timeout
+        )
+        return None if file_ok else f"Error with HDF5 File: {filepath}"
+
+    @staticmethod
+    def _check_filesize(filepath: str):
+        if not os.path.isfile(filepath):
+            return "Path is not a regular file."
+        if os.stat(filepath).st_size <= 0:
+            return "File does not have a file size > 0."
+        return None
 
     def check_files(self, files_dict):
         """
-        A function which test whether the files listed are present and for some formats
-        will perform a check the file can be read.
+        Test whether the listed files are present and, for supported formats,
+        verify that each file can be opened and read.
 
-        At present the format options are:
+        Supported format options:
 
-         * gdal_image - requires rsgislib to be installed
-         * gdal_vector - requires rsgislib to be installed
-         * hdf5 - requires rsgislib to be installed
-         * filesize - just checks file size is greater than 0.
-         * file - just does a check whether the file is present.
+         * ``gdal_image`` - validated via ``rsgispy.tools.checkdatasets``
+         * ``gdal_vector`` - validated via ``rsgispy.tools.checkdatasets``
+         * ``hdf5`` - validated via ``rsgispy.tools.checkdatasets``
+         * ``filesize`` - checks that the path is a regular file with size > 0
+         * ``file`` - checks only that the path exists
 
-        :param files_dict: dict with the structure key: filepath, value:format or
-                           the dict value can be another dict with parameters for
-                           the file check. If a dict is provided as the the value then
-                           the a type key must be provided with one of the format
-                           options above.
-
-        :return: tuple (boolean, dict with outputs as keys and error message
-                 as the value)
-
+        :param files_dict: Mapping of ``filepath -> format_str`` or
+                           ``filepath -> {"type": format_str, ...}``.
+        :return: Tuple of ``(all_ok_bool, errors_dict)``.
         """
         files_present = True
-        errs_dict = dict()
+        errs_dict = {}
         for filepath, file_spec in files_dict.items():
             if not os.path.exists(filepath):
                 files_present = False
                 errs_dict[filepath] = "Does not exist in file system."
-            else:
-                dict_params = False
-                file_type = "file"
-                if isinstance(file_spec, dict):
-                    if "type" in file_spec:
-                        file_type = file_spec["type"].lower()
-                        dict_params = True
-                    else:
-                        raise Exception(
-                            "If check_files provided dict of file info "
-                            "to check then the key type must be provided."
-                        )
-                elif isinstance(file_spec, str):
-                    file_type = file_spec.lower()
+                continue
 
-                if file_type == "gdal_image":
-                    try:
-                        import rsgislib.tools.checkdatasets
-                    except ImportError:
-                        raise Exception(
-                            "To check a gdal image is valid the RSGISLib "
-                            "library must be present."
-                        )
-                    if dict_params:
-                        n_bands = file_spec.get("n_bands", 0)
-                        chk_proj = file_spec.get("chk_proj", False)
-                        epsg_code = file_spec.get("epsg_code") if chk_proj else None
-                        read_img = file_spec.get("read_img", False)
-                        smpl_n_pxls = file_spec.get("smpl_n_pxls", 10) if read_img else 10
-                        calc_chk_sum = file_spec.get("calc_chk_sum", False)
-                        max_file_size = file_spec.get("max_file_size", None)
-                        timeout = file_spec.get("timeout", 4)
-
-                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_image_file(
-                            filepath,
-                            check_bands=True,
-                            n_bands=n_bands,
-                            chk_proj=chk_proj,
-                            epsg_code=epsg_code,
-                            read_img=read_img,
-                            smpl_n_pxls=smpl_n_pxls,
-                            calc_chk_sum=calc_chk_sum,
-                            max_file_size=max_file_size,
-                            rm_err=False,
-                            print_err=False,
-                            timeout=timeout,
-                        )
-                    else:
-                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_image_file(
-                            filepath,
-                            check_bands=True,
-                            rm_err=False,
-                            print_err=False,
-                        )
-                    if not file_ok:
-                        files_present = False
-                        errs_dict[filepath] = f"Error with GDAL Image File: {filepath}"
-                elif file_type == "gdal_vector":
-                    try:
-                        import rsgislib.tools.checkdatasets
-                    except ImportError:
-                        raise Exception(
-                            "To check a gdal image is valid the RSGISLib "
-                            "library must be present."
-                        )
-
-                    if dict_params:
-                        chk_proj = file_spec.get("chk_proj", False)
-                        epsg_code = file_spec.get("epsg_code") if chk_proj else None
-                        max_file_size = file_spec.get("max_file_size", None)
-                        timeout = file_spec.get("timeout", 4)
-
-                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_vector_file(
-                            filepath,
-                            chk_proj=chk_proj,
-                            epsg_code=epsg_code,
-                            max_file_size=max_file_size,
-                            rm_err=False,
-                            print_err=False,
-                            multi_file=False,
-                            timeout=timeout,
-                        )
-                    else:
-                        file_ok = rsgislib.tools.checkdatasets.run_check_gdal_vector_file(
-                            filepath, rm_err=False, print_err=False
-                        )
-
-                    if not file_ok:
-                        files_present = False
-                        errs_dict[filepath] = f"Error with GDAL Vector File: {filepath}"
-                elif file_type == "hdf5":
-                    try:
-                        import rsgislib.tools.checkdatasets
-                    except ImportError:
-                        raise Exception(
-                            "To check a gdal image is valid the RSGISLib "
-                            "library must be present."
-                        )
-
-                    timeout = file_spec.get("timeout", 4) if dict_params else 4
-                    file_ok = rsgislib.tools.checkdatasets.run_check_hdf5_file(
-                        filepath, rm_err=False, print_err=False, timeout=timeout
+            dict_params = False
+            file_type = "file"
+            if isinstance(file_spec, dict):
+                if "type" not in file_spec:
+                    raise ValueError(
+                        "If check_files is provided a dict of file info "
+                        "to check, the 'type' key must be provided."
                     )
-                    if not file_ok:
-                        files_present = False
-                        errs_dict[filepath] = f"Error with HDF5 File: {filepath}"
-                elif file_type == "filesize":
-                    if not os.path.isfile(filepath):
-                        files_present = False
-                        errs_dict[filepath] = "Path is not a regular file."
-                    else:
-                        file_size = os.stat(filepath).st_size
-                        if not (file_size > 0):
-                            files_present = False
-                            errs_dict[filepath] = "File does not have a file size > 0."
-                # Else: just ignore, no test being undertaken - i.e., being present
-                # is enough...
+                file_type = file_spec["type"].lower()
+                dict_params = True
+            elif isinstance(file_spec, str):
+                file_type = file_spec.lower()
+
+            err_msg = None
+            if file_type == "gdal_image":
+                err_msg = self._check_gdal_image(filepath, file_spec, dict_params)
+            elif file_type == "gdal_vector":
+                err_msg = self._check_gdal_vector(filepath, file_spec, dict_params)
+            elif file_type == "hdf5":
+                err_msg = self._check_hdf5(filepath, file_spec, dict_params)
+            elif file_type == "filesize":
+                err_msg = self._check_filesize(filepath)
+
+            if err_msg is not None:
+                files_present = False
+                errs_dict[filepath] = err_msg
+
         return files_present, errs_dict

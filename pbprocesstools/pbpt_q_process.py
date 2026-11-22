@@ -25,16 +25,18 @@ pb_process_tools - this file has classes for batch processing data using a queue
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 13/05/2020
-# Version: 4.0.0
+# Version: 4.0.1
 
 import argparse
 import concurrent.futures
 import datetime
+import hashlib
 import importlib
 import json
 import logging
 import os
 import pathlib
+import pprint
 import shlex
 import statistics
 import sys
@@ -50,7 +52,7 @@ import tqdm
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from pbprocesstools import configure_logging, py_sys_version_flt
+from pbprocesstools import configure_logging
 from pbprocesstools.pbpt_process import PBPTProcessToolsBase
 from pbprocesstools.pbpt_utils import PBPTUtils
 
@@ -58,7 +60,7 @@ logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
-    pass
+    """SQLAlchemy declarative base for dynamically generated job queue models."""
 
 
 def _sanitize_json(value: Any) -> Any:
@@ -66,6 +68,14 @@ def _sanitize_json(value: Any) -> Any:
     if value is None:
         return None
     return json.loads(json.dumps(value, default=str))
+
+
+def _mask_db_url(conn_str: str) -> str:
+    """Mask password credentials in a SQLAlchemy connection URL for safe logging."""
+    try:
+        return sqlalchemy.engine.make_url(conn_str).render_as_string(hide_password=True)
+    except Exception:  # pylint: disable=broad-exception-caught
+        return "<invalid-db-url>"
 
 
 def _validate_table_name(table_name: Optional[str]) -> str:
@@ -143,7 +153,9 @@ def get_job_model(table_name: str, schema: Optional[str] = None):
             f"ix_{safe_idx_prefix}_pending",
             pid_col,
             postgresql_where=sqlalchemy.and_(
-                completed_col.is_(False), started_col.is_(False)
+                completed_col.is_(False),
+                started_col.is_(False),
+                error_col.is_(False),
             ),
         ),
         sqlalchemy.Index(
@@ -373,12 +385,11 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
             with self._session_scope() as ses:
                 ses.execute(sqlalchemy.text("SELECT 1"))
             logger.debug("Verified database connection.")
-        except Exception as e:
+        except Exception as err:
+            masked_url = _mask_db_url(self.queue_db_info["db_conn_str"])
             raise ConnectionError(
-                "The database could not be connected to: '{}'".format(
-                    self.queue_db_info["db_conn_str"]
-                )
-            ) from e
+                f"The database could not be connected to: '{masked_url}'"
+            ) from err
 
         return True
 
@@ -390,18 +401,17 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
         :param kwargs: allows the user to pass custom variables to the function
                        (e.g., obj.do_processing(option_a=True, option_b=100)).
         """
-        pass
 
-    def completed_processing(self, **kwargs):
+    def completed_processing(self, **kwargs):  # pylint: disable=unused-argument
         """
         Mark the current job as completed in the database and optionally touch
         'out_cmp_file' if present in self.params.
         """
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         with self._session_scope() as ses:
             stmt = (
-                sqlalchemy.update(JobModel)
-                .where(JobModel.PID == self.job_pid)
+                sqlalchemy.update(job_model)
+                .where(job_model.PID == self.job_pid)
                 .values(
                     Completed=True,
                     Error=False,
@@ -414,7 +424,7 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
         if self.params and ("out_cmp_file" in self.params):
             pathlib.Path(self.params["out_cmp_file"]).touch()
 
-    def record_process_error(self, err_info, **kwargs):
+    def record_process_error(self, err_info, **kwargs):  # pylint: disable=unused-argument
         """
         Record an error in the database for the current job. Usually called
         instead of completed_processing.
@@ -422,12 +432,12 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
         :param err_info: a dict with information on the error to be stored in the
                          database.
         """
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         safe_err_info = _sanitize_json(err_info)
         with self._session_scope() as ses:
             stmt = (
-                sqlalchemy.update(JobModel)
-                .where(JobModel.PID == self.job_pid)
+                sqlalchemy.update(job_model)
+                .where(job_model.PID == self.job_pid)
                 .values(
                     Completed=False,
                     Error=True,
@@ -440,15 +450,16 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
 
     def _claim_next_job(self) -> Optional[tuple[int, Any]]:
         """Atomically claim the next pending job using FOR UPDATE SKIP LOCKED."""
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         with self._session_scope() as ses:
             stmt = (
-                sqlalchemy.select(JobModel)
+                sqlalchemy.select(job_model)
                 .where(
-                    JobModel.Completed.is_(False),
-                    JobModel.Started.is_(False),
+                    job_model.Completed.is_(False),
+                    job_model.Started.is_(False),
+                    job_model.Error.is_(False),
                 )
-                .order_by(JobModel.PID.asc())
+                .order_by(job_model.PID.asc())
                 .limit(1)
                 .with_for_update(skip_locked=True)
             )
@@ -463,6 +474,26 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
             ses.commit()
             return pid, params
 
+    @staticmethod
+    def _retry_db_write(func, max_retries: int, action_desc: str) -> bool:
+        """Retry transient database write failures with capped exponential backoff."""
+        attempts = max(1, int(max_retries))
+        for attempt in range(1, attempts + 1):
+            try:
+                func()
+                return True
+            except Exception as db_err:  # pylint: disable=broad-exception-caught
+                logger.exception(
+                    "Database error while %s (attempt %d/%d): %s",
+                    action_desc,
+                    attempt,
+                    attempts,
+                    db_err,
+                )
+                if attempt < attempts:
+                    time.sleep(min(2**attempt, 30))
+        return False
+
     @abstractmethod
     def required_fields(self, **kwargs):
         """
@@ -473,7 +504,6 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
                        (e.g., obj.required_fields(mod_version=True)).
         :return: list of strings
         """
-        pass
 
     @abstractmethod
     def outputs_present(self, **kwargs):
@@ -483,14 +513,12 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
 
         :return: tuple (boolean, dict with outputs as keys and error message as value)
         """
-        pass
 
     @abstractmethod
     def remove_outputs(self, **kwargs):
         """
         An abstract function which checks if outputs are present and removes them.
         """
-        pass
 
     def check_required_fields(self, **kwargs):
         """
@@ -504,16 +532,16 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
             if len(err_fields) > 1:
                 fields_str = ", ".join(err_fields)
                 raise KeyError(
-                    "The following fields '{}' should have been provided "
-                    "but were not within the params dict.".format(fields_str)
+                    f"The following fields '{fields_str}' should have been provided "
+                    f"but were not within the params dict."
                 )
             raise KeyError(
-                "The field '{}' should have been provided but was not "
-                "within the params dict.".format(err_fields[0])
+                f"The field '{err_fields[0]}' should have been provided but was not "
+                f"within the params dict."
             )
         return True
 
-    def parse_cmds(self, argv=None, **kwargs):
+    def parse_cmds(self, argv=None, **kwargs):  # pylint: disable=unused-argument
         """
         Parse the command line arguments to retrieve the database info and debug flags.
         """
@@ -562,13 +590,40 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
             self.debug_job_id = args.job
             self.debug_job_id_params = args.params
             self.debug_job_id_rmouts = args.rmouts
-            with open(args.dbinfo) as f:
-                self.queue_db_info = json.load(f)
+            with open(args.dbinfo, encoding="utf-8") as dbinfo_fp:
+                self.queue_db_info = json.load(dbinfo_fp)
             self.check_db_info()
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             traceback.print_exception(*sys.exc_info())
             return False
         return True
+
+    def _run_debug_job(self, **kwargs):
+        """Execute, print params, or remove outputs for a single debug job PID."""
+        job_model = self._get_job_model()
+        with self._session_scope() as ses:
+            logger.debug("Searching the database for job ID: '%s'", self.debug_job_id)
+            job_info = ses.execute(
+                sqlalchemy.select(job_model).where(job_model.PID == self.debug_job_id)
+            ).scalar_one_or_none()
+            if job_info is None:
+                raise LookupError(
+                    f"No job was found; does the specified job ({self.debug_job_id}) exist?"
+                )
+            self.job_pid = self.debug_job_id
+            self.params = job_info.JobParams
+
+        logger.debug("Found the job to process, PID: %s", self.job_pid)
+        if self.debug_job_id_params:
+            pprint.pprint(self.params)
+        elif self.debug_job_id_rmouts:
+            self.check_required_fields(**kwargs)
+            self.remove_outputs(**kwargs)
+        else:
+            self.check_required_fields(**kwargs)
+            self.do_processing(**kwargs)
+
+        logger.debug("Finished processing the job, PID: %s", self.job_pid)
 
     def std_run(self, max_db_retries: int = 5, **kwargs):
         """
@@ -579,106 +634,68 @@ class PBPTQProcessTool(_DBSessionMixin, PBPTProcessToolsBase):
         configure_logging()
         logger.debug("Starting to execute the 'std_run' function.")
         if not self.parse_cmds(**kwargs):
-            return
+            raise SystemExit(1)
 
         try:
-            if self.debug_job_id is None:
-                db_conn_str = self._get_conn_str()
-                logger.debug("Database connection info: '{}'.".format(db_conn_str))
-                consecutive_db_errors = 0
+            if self.debug_job_id is not None:
+                self._run_debug_job(**kwargs)
+                return
 
-                while True:
-                    try:
-                        claimed = self._claim_next_job()
-                        consecutive_db_errors = 0
-                    except Exception as e:
-                        consecutive_db_errors += 1
-                        logger.exception(
-                            "Database error while claiming job (attempt %d/%d): %s",
-                            consecutive_db_errors,
-                            max_db_retries,
-                            e,
-                        )
-                        if consecutive_db_errors >= max_db_retries:
-                            raise
-                        time.sleep(min(2 ** consecutive_db_errors, 30))
-                        continue
+            masked_conn = _mask_db_url(self._get_conn_str())
+            logger.debug("Database connection info: '%s'.", masked_conn)
+            consecutive_db_errors = 0
 
-                    if claimed is None:
-                        logger.debug("No job found to process - finishing.")
-                        break
-
-                    self.job_pid, self.params = claimed
-                    logger.debug(
-                        "Found the next scene to process. PID: {}".format(self.job_pid)
+            while True:
+                try:
+                    claimed = self._claim_next_job()
+                    consecutive_db_errors = 0
+                except Exception as err:  # pylint: disable=broad-exception-caught
+                    consecutive_db_errors += 1
+                    logger.exception(
+                        "Database error while claiming job (attempt %d/%d): %s",
+                        consecutive_db_errors,
+                        max_db_retries,
+                        err,
                     )
+                    if consecutive_db_errors >= max_db_retries:
+                        raise
+                    time.sleep(min(2**consecutive_db_errors, 30))
+                    continue
 
-                    try:
-                        self.check_required_fields(**kwargs)
-                        self.do_processing(**kwargs)
-                    except Exception as e:
-                        err_dict = {
-                            "error": str(e),
-                            "traceback": traceback.format_exc(),
-                        }
-                        try:
-                            self.record_process_error(err_dict)
-                        except Exception as db_err:
-                            logger.exception(
-                                "Failed to record process error for PID %s: %s",
-                                self.job_pid,
-                                db_err,
-                            )
-                        continue
+                if claimed is None:
+                    logger.debug("No job found to process - finishing.")
+                    break
 
-                    try:
-                        self.completed_processing(**kwargs)
-                    except Exception as db_err:
-                        logger.exception(
-                            "Job PID %s finished processing but failed to update completion status: %s",
-                            self.job_pid,
-                            db_err,
-                        )
-            else:
-                JobModel = self._get_job_model()
-                with self._session_scope() as ses:
-                    logger.debug(
-                        "Searching the database for job ID: '{}'".format(
-                            self.debug_job_id
-                        )
-                    )
-                    job_info = (
-                        ses.query(JobModel)
-                        .filter(JobModel.PID == self.debug_job_id)
-                        .one_or_none()
-                    )
-                    if job_info is None:
-                        raise Exception(
-                            f"No job was found; does the specified job ({self.debug_job_id}) exist?"
-                        )
-                    self.job_pid = self.debug_job_id
-                    self.params = job_info.JobParams
+                self.job_pid, self.params = claimed
+                logger.debug("Found the next scene to process. PID: %s", self.job_pid)
 
-                logger.debug("Found the job to process, PID: {}".format(self.job_pid))
-                if self.debug_job_id_params:
-                    import pprint
-
-                    pprint.pprint(self.params)
-                elif self.debug_job_id_rmouts:
-                    self.check_required_fields(**kwargs)
-                    self.remove_outputs(**kwargs)
-                else:
+                try:
                     self.check_required_fields(**kwargs)
                     self.do_processing(**kwargs)
+                except Exception as err:  # pylint: disable=broad-exception-caught
+                    err_dict = {
+                        "error": str(err),
+                        "traceback": traceback.format_exc(),
+                    }
+                    self._retry_db_write(
+                        lambda d=err_dict: self.record_process_error(d),
+                        max_db_retries,
+                        f"recording process error for PID {self.job_pid}",
+                    )
+                    continue
 
-                logger.debug(
-                    "Finished processing the job, PID: {}".format(self.job_pid)
+                self._retry_db_write(
+                    lambda: self.completed_processing(**kwargs),
+                    max_db_retries,
+                    f"updating completion status for PID {self.job_pid}",
                 )
         finally:
             self.dispose_engine()
 
 
 class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
+    """Abstract base class for generating and managing PostgreSQL batch job queues."""
+
     def __init__(
         self,
         cmd,
@@ -768,7 +785,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
     def _write_db_info_file(self, db_info_file=None) -> str:
         pbpt_utils = PBPTUtils()
         if db_info_file is None:
-            db_info_file = os.path.abspath("process_db_info_{}.json".format(self.uid))
+            db_info_file = os.path.abspath(f"process_db_info_{self.uid}.json")
         else:
             db_info_file = os.path.abspath(db_info_file)
 
@@ -808,13 +825,11 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
 
         process_tools_mod_inst = importlib.import_module(process_tools_mod)
         if process_tools_mod_inst is None:
-            raise ImportError("Could not load the module: '{}'".format(process_tools_mod))
+            raise ImportError(f"Could not load the module: '{process_tools_mod}'")
 
         process_tools_cls_inst = getattr(process_tools_mod_inst, process_tools_cls)()
         if process_tools_cls_inst is None:
-            raise RuntimeError(
-                "Could not create instance of '{}'".format(process_tools_cls)
-            )
+            raise RuntimeError(f"Could not create instance of '{process_tools_cls}'")
         process_tools_cls_inst.set_queue_db_info(self._build_queue_db_info())
         return process_tools_cls_inst
 
@@ -824,7 +839,6 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         An abstract function to create the list of dicts for the individual commands,
         populating self.params.
         """
-        pass
 
     def check_job_outputs(
         self,
@@ -846,7 +860,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         if n_workers < 1:
             raise ValueError("n_workers must be >= 1.")
 
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         process_tools_cls_inst = self._load_process_tool_instance(
             process_tools_path=process_tools_path,
             process_tools_mod=process_tools_mod,
@@ -855,20 +869,22 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
 
         pbpt_utils = PBPTUtils()
         err_pids = []
-        err_info = dict()
+        err_info = {}
 
         try:
             with self._session_scope() as ses:
                 jobs = (
                     ses.execute(
                         sqlalchemy.select(
-                            JobModel.PID,
-                            JobModel.JobParams,
-                            JobModel.Completed,
-                            JobModel.Started,
+                            job_model.PID,
+                            job_model.JobParams,
+                            job_model.Completed,
+                            job_model.Started,
+                            job_model.Error,
+                            job_model.ErrorInfo,
                         )
-                        .where(JobModel.Checked.is_(False))
-                        .order_by(JobModel.PID.asc())
+                        .where(job_model.Checked.is_(False))
+                        .order_by(job_model.PID.asc())
                     )
                     .all()
                 )
@@ -880,17 +896,16 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 def _flush_batch():
                     if checked_pids:
                         ses.execute(
-                            sqlalchemy.update(JobModel)
-                            .where(JobModel.PID.in_(checked_pids))
+                            sqlalchemy.update(job_model)
+                            .where(job_model.PID.in_(checked_pids))
                             .values(Checked=True)
                         )
                         checked_pids.clear()
                     if incomplete_pids:
                         ses.execute(
-                            sqlalchemy.update(JobModel)
-                            .where(JobModel.PID.in_(incomplete_pids))
+                            sqlalchemy.update(job_model)
+                            .where(job_model.PID.in_(incomplete_pids))
                             .values(
-                                Started=False,
                                 Error=True,
                                 ErrorInfo={"error": "Started but did not complete."},
                             )
@@ -898,8 +913,8 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                         incomplete_pids.clear()
                     for err_pid, err_dict in err_rows:
                         ses.execute(
-                            sqlalchemy.update(JobModel)
-                            .where(JobModel.PID == err_pid)
+                            sqlalchemy.update(job_model)
+                            .where(job_model.PID == err_pid)
                             .values(
                                 Completed=False,
                                 Error=True,
@@ -910,12 +925,25 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                     ses.commit()
 
                 completed_jobs = []
-                for pid, job_params, completed, started in jobs:
+                for (
+                    pid,
+                    job_params,
+                    completed,
+                    started,
+                    is_err,
+                    existing_err_info,
+                ) in jobs:
                     if completed:
                         completed_jobs.append((pid, job_params))
                     else:
                         err_pids.append(pid)
-                        if started:
+                        if is_err:
+                            err_info[pid] = (
+                                existing_err_info
+                                if existing_err_info is not None
+                                else "Job failed with an error."
+                            )
+                        elif started:
                             incomplete_pids.append(pid)
                             err_info[pid] = "Started but did not complete."
                         else:
@@ -982,12 +1010,12 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
             self.dispose_engine()
 
         err_pids.sort()
-        if len(err_pids) > 0:
+        if err_pids:
             if out_err_pid_file is not None:
                 pbpt_utils.writeList2File(err_pids, out_err_pid_file)
             if out_err_info_file is not None:
                 pbpt_utils.writeDict2JSON(err_info, out_err_info_file)
-            print("{} errors".format(len(err_pids)))
+            print(f"{len(err_pids)} errors")
         else:
             if out_err_pid_file is not None:
                 pathlib.Path(out_err_pid_file).touch()
@@ -1016,7 +1044,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 "for outputs to be removed."
             )
 
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         process_tools_cls_inst = self._load_process_tool_instance(
             process_tools_path=process_tools_path,
             process_tools_mod=process_tools_mod,
@@ -1025,23 +1053,23 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
 
         try:
             with self._session_scope() as ses:
-                stmt = sqlalchemy.select(JobModel.PID, JobModel.JobParams).order_by(
-                    JobModel.PID.asc()
+                stmt = sqlalchemy.select(job_model.PID, job_model.JobParams).order_by(
+                    job_model.PID.asc()
                 )
                 if not all_jobs:
                     filters = []
                     if error_jobs:
                         filters.append(
                             sqlalchemy.or_(
-                                JobModel.Error.is_(True),
+                                job_model.Error.is_(True),
                                 sqlalchemy.and_(
-                                    JobModel.Started.is_(True),
-                                    JobModel.Completed.is_(False),
+                                    job_model.Started.is_(True),
+                                    job_model.Completed.is_(False),
                                 ),
                             )
                         )
                     if pids:
-                        filters.append(JobModel.PID.in_(list(pids)))
+                        filters.append(job_model.PID.in_(list(pids)))
                     stmt = stmt.where(sqlalchemy.or_(*filters))
 
                 jobs = ses.execute(stmt).all()
@@ -1050,8 +1078,8 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 def _flush_reset():
                     if reset_pids:
                         ses.execute(
-                            sqlalchemy.update(JobModel)
-                            .where(JobModel.PID.in_(reset_pids))
+                            sqlalchemy.update(job_model)
+                            .where(job_model.PID.in_(reset_pids))
                             .values(
                                 Started=False,
                                 Error=False,
@@ -1095,10 +1123,10 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 "Must specify all_jobs, error_jobs, or pids to reset jobs."
             )
 
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         try:
             with self._session_scope() as ses:
-                stmt = sqlalchemy.update(JobModel).values(
+                stmt = sqlalchemy.update(job_model).values(
                     Started=False,
                     Error=False,
                     Completed=False,
@@ -1112,15 +1140,15 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                     if error_jobs:
                         filters.append(
                             sqlalchemy.or_(
-                                JobModel.Error.is_(True),
+                                job_model.Error.is_(True),
                                 sqlalchemy.and_(
-                                    JobModel.Started.is_(True),
-                                    JobModel.Completed.is_(False),
+                                    job_model.Started.is_(True),
+                                    job_model.Completed.is_(False),
                                 ),
                             )
                         )
                     if pids:
-                        filters.append(JobModel.PID.in_(list(pids)))
+                        filters.append(job_model.PID.in_(list(pids)))
                     stmt = stmt.where(sqlalchemy.or_(*filters))
 
                 result = ses.execute(stmt)
@@ -1136,24 +1164,24 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         Generate a JSON report of job counts, timing statistics, and errors using
         SQL aggregation and minimal column projection.
         """
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
 
         try:
             with self._session_scope() as ses:
                 counts_stmt = sqlalchemy.select(
-                    sqlalchemy.func.count(JobModel.PID).label("total"),
+                    sqlalchemy.func.count(job_model.PID).label("total"),  # pylint: disable=not-callable
                     sqlalchemy.func.sum(
-                        sqlalchemy.case((JobModel.Completed.is_(True), 1), else_=0)
+                        sqlalchemy.case((job_model.Completed.is_(True), 1), else_=0)
                     ).label("n_completed"),
                     sqlalchemy.func.sum(
-                        sqlalchemy.case((JobModel.Started.is_(True), 1), else_=0)
+                        sqlalchemy.case((job_model.Started.is_(True), 1), else_=0)
                     ).label("n_started"),
                     sqlalchemy.func.sum(
                         sqlalchemy.case(
                             (
                                 sqlalchemy.and_(
-                                    JobModel.Completed.is_(False),
-                                    JobModel.Error.is_(True),
+                                    job_model.Completed.is_(False),
+                                    job_model.Error.is_(True),
                                 ),
                                 1,
                             ),
@@ -1170,31 +1198,33 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
 
                 job_times = []
                 if n_completed > 0:
-                    times_rows = ses.execute(
-                        sqlalchemy.select(JobModel.Start, JobModel.End).where(
-                            JobModel.Completed.is_(True),
-                            JobModel.Start.is_not(None),
-                            JobModel.End.is_not(None),
+                    times_result = ses.execute(
+                        sqlalchemy.select(job_model.Start, job_model.End)
+                        .where(
+                            job_model.Completed.is_(True),
+                            job_model.Start.is_not(None),
+                            job_model.End.is_not(None),
                         )
-                    ).all()
+                        .execution_options(yield_per=5000)
+                    )
                     job_times = [
                         (end_t - start_t).total_seconds()
-                        for start_t, end_t in times_rows
+                        for start_t, end_t in times_result
                     ]
 
-                err_info = dict()
-                status_info = dict()
+                err_info = {}
+                status_info = {}
                 problem_rows = ses.execute(
                     sqlalchemy.select(
-                        JobModel.PID,
-                        JobModel.Error,
-                        JobModel.ErrorInfo,
-                        JobModel.Started,
+                        job_model.PID,
+                        job_model.Error,
+                        job_model.ErrorInfo,
+                        job_model.Started,
                     ).where(
-                        JobModel.Completed.is_(False),
+                        job_model.Completed.is_(False),
                         sqlalchemy.or_(
-                            JobModel.Error.is_(True),
-                            JobModel.Started.is_(True),
+                            job_model.Error.is_(True),
+                            job_model.Started.is_(True),
                         ),
                     )
                 ).all()
@@ -1206,7 +1236,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         finally:
             self.dispose_engine()
 
-        out_info_dict = dict()
+        out_info_dict = {}
         if n_jobs > 0:
             out_info_dict["job_n"] = {
                 "n_completed": n_completed,
@@ -1216,7 +1246,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 "total_n_jobs": n_jobs,
             }
 
-            if len(job_times) > 0:
+            if job_times:
                 job_times_dict = {
                     "time_mean_secs": statistics.mean(job_times),
                     "time_min_secs": min(job_times),
@@ -1225,18 +1255,15 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 }
                 if len(job_times) > 1:
                     job_times_dict["time_stdev_secs"] = statistics.stdev(job_times)
-                    if py_sys_version_flt >= 3.8:
-                        job_times_dict["time_quartiles_secs"] = statistics.quantiles(
-                            job_times
-                        )
+                    job_times_dict["time_quartiles_secs"] = statistics.quantiles(
+                        job_times
+                    )
                 out_info_dict["job_times"] = job_times_dict
 
             out_info_dict["status"] = status_info
             out_info_dict["xerrors"] = err_info
 
         if out_report_file is None:
-            import pprint
-
             pprint.pprint(out_info_dict)
         else:
             pbpt_utils = PBPTUtils()
@@ -1256,24 +1283,24 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         """
         Return a compact queue status summary dictionary using SQL aggregation.
         """
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         try:
             with self._session_scope() as ses:
                 stmt = sqlalchemy.select(
-                    sqlalchemy.func.count(JobModel.PID).label("total"),
+                    sqlalchemy.func.count(job_model.PID).label("total"),  # pylint: disable=not-callable
                     sqlalchemy.func.sum(
-                        sqlalchemy.case((JobModel.Completed.is_(True), 1), else_=0)
+                        sqlalchemy.case((job_model.Completed.is_(True), 1), else_=0)
                     ).label("completed"),
                     sqlalchemy.func.sum(
-                        sqlalchemy.case((JobModel.Checked.is_(True), 1), else_=0)
+                        sqlalchemy.case((job_model.Checked.is_(True), 1), else_=0)
                     ).label("checked"),
                     sqlalchemy.func.sum(
                         sqlalchemy.case(
                             (
                                 sqlalchemy.and_(
-                                    JobModel.Started.is_(True),
-                                    JobModel.Completed.is_(False),
-                                    JobModel.Error.is_(False),
+                                    job_model.Started.is_(True),
+                                    job_model.Completed.is_(False),
+                                    job_model.Error.is_(False),
                                 ),
                                 1,
                             ),
@@ -1281,23 +1308,23 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                         )
                     ).label("running"),
                     sqlalchemy.func.sum(
-                        sqlalchemy.case((JobModel.Error.is_(True), 1), else_=0)
+                        sqlalchemy.case((job_model.Error.is_(True), 1), else_=0)
                     ).label("errors"),
                     sqlalchemy.func.sum(
                         sqlalchemy.case(
                             (
                                 sqlalchemy.and_(
-                                    JobModel.Started.is_(False),
-                                    JobModel.Completed.is_(False),
-                                    JobModel.Error.is_(False),
+                                    job_model.Started.is_(False),
+                                    job_model.Completed.is_(False),
+                                    job_model.Error.is_(False),
                                 ),
                                 1,
                             ),
                             else_=0,
                         )
                     ).label("pending"),
-                    sqlalchemy.func.min(JobModel.Start).label("first_start"),
-                    sqlalchemy.func.max(JobModel.End).label("last_end"),
+                    sqlalchemy.func.min(job_model.Start).label("first_start"),
+                    sqlalchemy.func.max(job_model.End).label("last_end"),
                 )
                 row = ses.execute(stmt).one()
         finally:
@@ -1384,20 +1411,18 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         """
         Inspect a single job row (status, timestamps, parameters, and error info) by PID.
         """
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         try:
             with self._session_scope() as ses:
                 job_info = (
                     ses.execute(
-                        sqlalchemy.select(JobModel).where(JobModel.PID == pid)
+                        sqlalchemy.select(job_model).where(job_model.PID == pid)
                     )
                     .scalar_one_or_none()
                 )
                 if job_info is None:
                     raise LookupError(
-                        "No job found with PID {} in table '{}'.".format(
-                            pid, self.db_table_name
-                        )
+                        f"No job found with PID {pid} in table '{self.db_table_name}'."
                     )
                 details = {
                     "PID": job_info.PID,
@@ -1423,27 +1448,27 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         """
         Retrieve and optionally print errored and incomplete jobs from the queue.
         """
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         try:
             with self._session_scope() as ses:
                 stmt = (
                     sqlalchemy.select(
-                        JobModel.PID,
-                        JobModel.Started,
-                        JobModel.Completed,
-                        JobModel.Error,
-                        JobModel.ErrorInfo,
+                        job_model.PID,
+                        job_model.Started,
+                        job_model.Completed,
+                        job_model.Error,
+                        job_model.ErrorInfo,
                     )
                     .where(
                         sqlalchemy.or_(
-                            JobModel.Error.is_(True),
+                            job_model.Error.is_(True),
                             sqlalchemy.and_(
-                                JobModel.Started.is_(True),
-                                JobModel.Completed.is_(False),
+                                job_model.Started.is_(True),
+                                job_model.Completed.is_(False),
                             ),
                         )
                     )
-                    .order_by(JobModel.PID.asc())
+                    .order_by(job_model.PID.asc())
                 )
                 if limit is not None:
                     stmt = stmt.limit(limit)
@@ -1486,16 +1511,16 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         """
         Drop the job queue table from the database if it exists.
         """
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         try:
             db_engine = self._get_engine()
-            JobModel.__table__.drop(db_engine, checkfirst=True)
+            job_model.__table__.drop(db_engine, checkfirst=True)
             logger.info("Dropped table '%s'.", self.db_table_name)
         finally:
             self.dispose_engine()
 
     def _ensure_schema_and_table(self, db_engine, drop_existing: bool = False):
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         if (self.db_schema is not None) and (db_engine.dialect.name == "postgresql"):
             with db_engine.begin() as conn:
                 conn.execute(
@@ -1506,12 +1531,17 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
 
         if drop_existing:
             logger.debug("Drop queue table if within the existing database.")
-            JobModel.__table__.drop(db_engine, checkfirst=True)
+            job_model.__table__.drop(db_engine, checkfirst=True)
             logger.debug("Creating queue table.")
-            JobModel.__table__.create(db_engine)
+            job_model.__table__.create(db_engine)
         else:
             logger.debug("Ensuring queue table exists.")
-            JobModel.__table__.create(db_engine, checkfirst=True)
+            job_model.__table__.create(db_engine, checkfirst=True)
+
+    @staticmethod
+    def _params_digest(params_obj: Any) -> bytes:
+        canonical = json.dumps(params_obj, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).digest()
 
     def append_params_db(self, batch_size=5000, deduplicate=True) -> int:
         """
@@ -1532,7 +1562,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 print(f"[DRY RUN] Sample job[0]: {self.params[0]}")
             return 0
 
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         try:
             db_engine = self._get_engine()
             self._ensure_schema_and_table(db_engine, drop_existing=False)
@@ -1540,33 +1570,38 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
             params_to_insert = [_sanitize_json(p) for p in self.params]
             if deduplicate and params_to_insert:
                 with self._session_scope() as ses:
-                    existing_rows = ses.execute(
-                        sqlalchemy.select(JobModel.JobParams)
-                    ).scalars()
+                    existing_rows = (
+                        ses.execute(
+                            sqlalchemy.select(job_model.JobParams).execution_options(
+                                yield_per=5000
+                            )
+                        )
+                        .scalars()
+                    )
                     seen = {
-                        json.dumps(row, sort_keys=True)
+                        self._params_digest(row)
                         for row in existing_rows
                         if row is not None
                     }
                 filtered = []
                 for p in params_to_insert:
-                    key = json.dumps(p, sort_keys=True)
-                    if key not in seen:
-                        seen.add(key)
+                    digest = self._params_digest(p)
+                    if digest not in seen:
+                        seen.add(digest)
                         filtered.append(p)
                 params_to_insert = filtered
 
             logger.info(
-                "Appending {} new jobs (out of {} total) to the database.".format(
-                    len(params_to_insert), len(self.params)
-                )
+                "Appending %d new jobs (out of %d total) to the database.",
+                len(params_to_insert),
+                len(self.params),
             )
-            if len(params_to_insert) > 0:
+            if params_to_insert:
                 with self._session_scope() as ses:
                     for start_idx in range(0, len(params_to_insert), batch_size):
                         chunk = params_to_insert[start_idx : start_idx + batch_size]
                         rows = [{"JobParams": p} for p in chunk]
-                        ses.execute(sqlalchemy.insert(JobModel), rows)
+                        ses.execute(sqlalchemy.insert(job_model), rows)
                     ses.commit()
             logger.info("Finished appending jobs to the database.")
             return len(params_to_insert)
@@ -1600,22 +1635,20 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 print(f"[DRY RUN] Sample job[0]: {self.params[0]}")
             return 0
 
-        JobModel = self._get_job_model()
+        job_model = self._get_job_model()
         try:
             db_engine = self._get_engine()
             self._ensure_schema_and_table(db_engine, drop_existing=True)
 
             logger.info(
-                "There are {} jobs to be written to the database.".format(
-                    len(self.params)
-                )
+                "There are %d jobs to be written to the database.", len(self.params)
             )
-            if len(self.params) > 0:
+            if self.params:
                 with self._session_scope() as ses:
                     for start_idx in range(0, len(self.params), batch_size):
                         chunk = self.params[start_idx : start_idx + batch_size]
                         rows = [{"JobParams": _sanitize_json(p)} for p in chunk]
-                        ses.execute(sqlalchemy.insert(JobModel), rows)
+                        ses.execute(sqlalchemy.insert(job_model), rows)
                     ses.commit()
             logger.info("Written jobs to the database.")
             return len(self.params)
@@ -1638,14 +1671,16 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         db_info_file = self._write_db_info_file(db_info_file)
 
         logger.info("Create commands shell scripts.")
-        cmd_line = "{} --dbinfo {}".format(self.cmd, shlex.quote(db_info_file))
+        cmd_line = f"{self.cmd} --dbinfo {shlex.quote(db_info_file)}"
         lst_cmds = [cmd_line for _ in range(n_cores)]
         pbpt_utils.writeList2File(lst_cmds, cmds_sh_file)
 
-        parallel_cmd = "parallel -j {} < {}".format(
-            n_cores, shlex.quote(cmds_sh_file)
-        )
+        parallel_cmd = f"#!/bin/bash\nparallel -j {n_cores} < {shlex.quote(cmds_sh_file)}"
         pbpt_utils.writeData2File(parallel_cmd, run_script)
+        try:
+            os.chmod(run_script, 0o755)
+        except OSError:
+            pass
         logger.info("Finished creating shell scripts.")
 
     def create_slurm_sub_sh(
@@ -1709,7 +1744,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         job_dir = os.path.abspath(job_dir)
         os.makedirs(job_dir, exist_ok=True)
 
-        cmd_line = "{} --dbinfo {}".format(self.cmd, shlex.quote(db_info_file))
+        cmd_line = f"{self.cmd} --dbinfo {shlex.quote(db_info_file)}"
         lst_cmds = [cmd_line for _ in range(n_cores_per_job + n_xtr_cmds)]
         cmds_sh_file = os.path.join(job_dir, "jobcmds.sh")
         pbpt_utils.writeList2File(lst_cmds, cmds_sh_file)
@@ -1723,27 +1758,25 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
 
         def _write_common_sbatch_headers(sbatch_file_obj, s_jobname, out_log, err_log):
             sbatch_file_obj.write("#!/bin/bash --login\n\n")
-            if account_name is not None:
-                sbatch_file_obj.write("#SBATCH --account={}\n".format(account_name))
-            if partition is not None:
-                sbatch_file_obj.write("#SBATCH --partition={}\n".format(partition))
-            if qos is not None:
-                sbatch_file_obj.write("#SBATCH --qos={}\n".format(qos))
-            if constraint is not None:
-                sbatch_file_obj.write("#SBATCH --constraint={}\n".format(constraint))
-            if gres is not None:
-                sbatch_file_obj.write("#SBATCH --gres={}\n".format(gres))
-            sbatch_file_obj.write("#SBATCH --job-name={}\n".format(s_jobname))
-            sbatch_file_obj.write("#SBATCH --output={}\n".format(out_log))
-            sbatch_file_obj.write("#SBATCH --error={}\n".format(err_log))
-            sbatch_file_obj.write("#SBATCH --time={}\n".format(job_time_limit))
-            sbatch_file_obj.write("#SBATCH --ntasks={}\n".format(n_cores_per_job))
+            if account_name:
+                sbatch_file_obj.write(f"#SBATCH --account={account_name}\n")
+            if partition:
+                sbatch_file_obj.write(f"#SBATCH --partition={partition}\n")
+            if qos:
+                sbatch_file_obj.write(f"#SBATCH --qos={qos}\n")
+            if constraint:
+                sbatch_file_obj.write(f"#SBATCH --constraint={constraint}\n")
+            if gres:
+                sbatch_file_obj.write(f"#SBATCH --gres={gres}\n")
+            sbatch_file_obj.write(f"#SBATCH --job-name={s_jobname}\n")
+            sbatch_file_obj.write(f"#SBATCH --output={out_log}\n")
+            sbatch_file_obj.write(f"#SBATCH --error={err_log}\n")
+            sbatch_file_obj.write(f"#SBATCH --time={job_time_limit}\n")
+            sbatch_file_obj.write(f"#SBATCH --ntasks={n_cores_per_job}\n")
             if mem_total_mb is not None:
-                sbatch_file_obj.write("#SBATCH --mem={}\n".format(mem_total_mb))
+                sbatch_file_obj.write(f"#SBATCH --mem={mem_total_mb}\n")
             elif mem_per_core_mb is not None:
-                sbatch_file_obj.write(
-                    "#SBATCH --mem-per-cpu={}\n".format(mem_per_core_mb)
-                )
+                sbatch_file_obj.write(f"#SBATCH --mem-per-cpu={mem_per_core_mb}\n")
             if extra_sbatch_args:
                 for extra_arg in extra_sbatch_args:
                     line = extra_arg.strip()
@@ -1751,47 +1784,47 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                         line = f"#SBATCH {line}"
                     sbatch_file_obj.write(f"{line}\n")
 
-        sbatch_cmds = list()
+        sbatch_cmds = ["#!/bin/bash"]
         if use_array:
             array_spec = f"0-{n_jobs - 1}"
             if max_concurrent is not None:
                 array_spec = f"{array_spec}%{max_concurrent}"
             sbatch_file = os.path.join(job_dir, "job_array.sbatch")
-            out_log = os.path.join(log_dir, "{}_%A_%a_log.out".format(jobname))
-            err_log = os.path.join(log_dir, "{}_%A_%a_log.err".format(jobname))
-            with open(sbatch_file, "w") as sbatch_file_obj:
+            out_log = os.path.join(log_dir, f"{jobname}_%A_%a_log.out")
+            err_log = os.path.join(log_dir, f"{jobname}_%A_%a_log.err")
+            with open(sbatch_file, "w", encoding="utf-8") as sbatch_file_obj:
                 _write_common_sbatch_headers(
                     sbatch_file_obj, jobname, out_log, err_log
                 )
-                sbatch_file_obj.write("#SBATCH --array={}\n".format(array_spec))
-                if module_load is not None:
-                    sbatch_file_obj.write("\n{}\n".format(module_load))
+                sbatch_file_obj.write(f"#SBATCH --array={array_spec}\n")
+                if module_load:
+                    sbatch_file_obj.write(f"\n{module_load}\n")
                 sbatch_file_obj.write(
-                    "\nparallel -N 1 --delay .2 -j $SLURM_NTASKS < {}\n\n".format(
-                        shlex.quote(cmds_sh_file)
-                    )
+                    f"\nparallel -N 1 --delay .2 -j $SLURM_NTASKS < {shlex.quote(cmds_sh_file)}\n\n"
                 )
-            sbatch_cmds.append("sbatch {}".format(shlex.quote(sbatch_file)))
+            sbatch_cmds.append(f"sbatch {shlex.quote(sbatch_file)}")
         else:
             for n in range(n_jobs):
-                sbatch_file = os.path.join(job_dir, "job_file_{}.sbatch".format(n))
-                c_jobname = "{}_{}".format(jobname, n)
-                out_log = os.path.join(log_dir, "{}_log.out.%J".format(c_jobname))
-                err_log = os.path.join(log_dir, "{}_log.err.%J".format(c_jobname))
-                with open(sbatch_file, "w") as sbatch_file_obj:
+                sbatch_file = os.path.join(job_dir, f"job_file_{n}.sbatch")
+                c_jobname = f"{jobname}_{n}"
+                out_log = os.path.join(log_dir, f"{c_jobname}_log.out.%J")
+                err_log = os.path.join(log_dir, f"{c_jobname}_log.err.%J")
+                with open(sbatch_file, "w", encoding="utf-8") as sbatch_file_obj:
                     _write_common_sbatch_headers(
                         sbatch_file_obj, c_jobname, out_log, err_log
                     )
-                    if module_load is not None:
-                        sbatch_file_obj.write("\n{}\n".format(module_load))
+                    if module_load:
+                        sbatch_file_obj.write(f"\n{module_load}\n")
                     sbatch_file_obj.write(
-                        "\nparallel -N 1 --delay .2 -j $SLURM_NTASKS < {}\n\n".format(
-                            shlex.quote(cmds_sh_file)
-                        )
+                        f"\nparallel -N 1 --delay .2 -j $SLURM_NTASKS < {shlex.quote(cmds_sh_file)}\n\n"
                     )
-                    sbatch_cmds.append("sbatch {}".format(shlex.quote(sbatch_file)))
+                    sbatch_cmds.append(f"sbatch {shlex.quote(sbatch_file)}")
 
         pbpt_utils.writeList2File(sbatch_cmds, run_script)
+        try:
+            os.chmod(run_script, 0o755)
+        except OSError:
+            pass
         logger.info("Finished creating slurm scripts.")
 
     @abstractmethod
@@ -1800,7 +1833,6 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         An abstract function which needs to be implemented with the functions and inputs
         you want run to generate the various commands and scripts to be executed.
         """
-        pass
 
     def run_check_outputs(self, out_files=False, n_workers=1, **kwargs):
         """
@@ -1808,8 +1840,8 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
         """
         if out_files:
             time_sample_str = self.generate_readable_timestamp_str()
-            out_err_pid_file = "processing_errs_scns_{}.txt".format(time_sample_str)
-            out_err_info_file = "non_complete_errs_{}.json".format(time_sample_str)
+            out_err_pid_file = f"processing_errs_scns_{time_sample_str}.txt"
+            out_err_info_file = f"non_complete_errs_{time_sample_str}.json"
         else:
             out_err_pid_file = None
             out_err_info_file = None
@@ -2031,7 +2063,7 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
             n_reset = self.run_reset_jobs(
                 all_jobs=args.all, error_jobs=args.error, pids=args.pids
             )
-            print("Reset {} job(s) in database.".format(n_reset))
+            print(f"Reset {n_reset} job(s) in database.")
         elif args.drop:
             if not args.yes:
                 if sys.stdin.isatty():
@@ -2044,6 +2076,6 @@ class PBPTGenQProcessToolCmds(_DBSessionMixin, PBPTProcessToolsBase):
                 else:
                     parser.error("--drop requires --yes (-y) when run non-interactively.")
             self.drop_params_db()
-            print("Dropped queue table '{}'.".format(self.db_table_name))
+            print(f"Dropped queue table '{self.db_table_name}'.")
         else:
             parser.print_help()
