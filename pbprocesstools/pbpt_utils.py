@@ -36,7 +36,7 @@ import os
 
 import rsgispy
 import rsgispy.tools.dicts
-import rsgispy.tools.filetools
+import rsgispy.tools.files
 import rsgispy.tools.jsonio
 import rsgispy.tools.strings
 import rsgispy.tools.textio
@@ -53,7 +53,7 @@ class PBPTUtils:
         self, input_file, sleep_period=1, wait_iters=120, use_except=False, timeout=3600
     ):
         """
-        Acquire a lock file alongside ``input_file`` using ``rsgispy.tools.filetools``.
+        Acquire a lock file alongside ``input_file`` using ``rsgispy.tools.files``.
 
         If the lock cannot be acquired within ``wait_iters``, stale locks older than
         ``timeout`` seconds are cleaned up and acquisition is retried once.
@@ -65,7 +65,7 @@ class PBPTUtils:
         :param timeout: Lock expiry threshold in seconds (Default=3600).
         :return: True if the lock was acquired, False otherwise.
         """
-        got_lock = rsgispy.tools.filetools.get_file_lock(
+        got_lock = rsgispy.tools.files.get_file_lock(
             input_file,
             sleep_period=sleep_period,
             wait_iters=wait_iters,
@@ -74,7 +74,7 @@ class PBPTUtils:
         if not got_lock:
             file_path, _ = os.path.split(input_file)
             self.clean_file_locks(file_path or ".", timeout)
-            got_lock = rsgispy.tools.filetools.get_file_lock(
+            got_lock = rsgispy.tools.files.get_file_lock(
                 input_file,
                 sleep_period=0,
                 wait_iters=0,
@@ -94,7 +94,7 @@ class PBPTUtils:
         file_path, _ = os.path.split(input_file)
         dir_path = file_path or "."
         try:
-            rsgispy.tools.filetools.release_file_lock(input_file)
+            rsgispy.tools.files.release_file_lock(input_file)
         except (OSError, rsgispy.RSGISPyException):
             logger.debug("Failed to remove lock file so calling clean_file_locks.")
             self.clean_file_locks(dir_path, timeout)
@@ -106,7 +106,7 @@ class PBPTUtils:
         :param dir_path: Directory path to search for lock files.
         :param timeout: Lock expiry threshold in seconds (Default=3600).
         """
-        rsgispy.tools.filetools.clean_file_locks(dir_path or ".", timeout=timeout)
+        rsgispy.tools.files.clean_file_locks(dir_path or ".", timeout=timeout)
 
     def readTextFileNoNewLines(self, file):
         """

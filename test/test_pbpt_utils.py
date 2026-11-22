@@ -185,12 +185,12 @@ class PBPTUtilsTest(unittest.TestCase):
             import rsgispy
 
             with unittest.mock.patch(
-                "rsgispy.tools.filetools.release_file_lock",
+                "rsgispy.tools.files.release_file_lock",
                 side_effect=OSError("perm"),
             ):
                 self.pbpt_utils.release_file_lock(target, timeout=3600)
             with unittest.mock.patch(
-                "rsgispy.tools.filetools.release_file_lock",
+                "rsgispy.tools.files.release_file_lock",
                 side_effect=rsgispy.RSGISPyException("missing"),
             ):
                 self.pbpt_utils.release_file_lock(target, timeout=3600)
@@ -229,7 +229,7 @@ class PBPTUtilsTest(unittest.TestCase):
 
             # Clean with empty dir_path falls back to "."
             with unittest.mock.patch(
-                "rsgispy.tools.filetools.clean_file_locks"
+                "rsgispy.tools.files.clean_file_locks"
             ) as mock_clean:
                 self.pbpt_utils.clean_file_locks("", timeout=10)
                 mock_clean.assert_called_once_with(".", timeout=10)

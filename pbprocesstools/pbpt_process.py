@@ -34,7 +34,7 @@ import shutil
 from abc import ABC
 from datetime import datetime
 
-import rsgispy.tools.filetools
+import rsgispy.tools.files
 import rsgispy.tools.strings
 
 
@@ -71,10 +71,10 @@ class PBPTProcessToolsBase(ABC):
         :return: Single matching file path, or ``None`` if zero or multiple files match.
         """
         if isinstance(dir_path, str):
-            return rsgispy.tools.filetools.find_file_none(dir_path, file_search)
+            return rsgispy.tools.files.find_file_none(dir_path, file_search)
 
         for c_dir_path in dir_path:
-            found = rsgispy.tools.filetools.find_file_none(c_dir_path, file_search)
+            found = rsgispy.tools.files.find_file_none(c_dir_path, file_search)
             if found is not None:
                 return found
         return None
@@ -89,7 +89,7 @@ class PBPTProcessToolsBase(ABC):
                            files match; otherwise return ``None``.
         :return: Matched file path, or ``None`` if ``rtn_except=False``.
         """
-        return rsgispy.tools.filetools.find_first_file(
+        return rsgispy.tools.files.find_first_file(
             dir_path, file_search, rtn_except=rtn_except
         )
 
@@ -108,7 +108,7 @@ class PBPTProcessToolsBase(ABC):
                           pass 0 to strip all extensions).
         :return: Extracted basename string.
         """
-        return rsgispy.tools.filetools.get_file_basename(
+        return rsgispy.tools.files.get_file_basename(
             file_path,
             check_valid=check_valid,
             n_comps=n_comps,
