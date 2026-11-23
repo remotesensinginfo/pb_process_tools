@@ -4,7 +4,7 @@ Get Started
 Install
 -------
 
-Install ``pb_process_tools`` (v4.0.1) with PostgreSQL driver support::
+Install ``pb_process_tools`` (v4.0.2) with PostgreSQL driver support::
 
     pip install ".[postgres]"
 

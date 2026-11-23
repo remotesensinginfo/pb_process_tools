@@ -27,7 +27,7 @@ See other source files for details
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 12/11/2018
-# Version: 4.0.1
+# Version: 4.0.2
 
 import json
 import logging

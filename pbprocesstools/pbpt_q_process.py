@@ -25,7 +25,7 @@ pb_process_tools - this file has classes for batch processing data using a queue
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 13/05/2020
-# Version: 4.0.1
+# Version: 4.0.2
 
 import argparse
 import concurrent.futures

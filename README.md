@@ -13,7 +13,7 @@ Full documentation, installation guides, CLI references, and examples (including
 
 ## Installation
 
-Install `pb_process_tools` (v4.0.1) from the source directory (where `pyproject.toml` is located):
+Install `pb_process_tools` (v4.0.2) from the source directory (where `pyproject.toml` is located):
 
 ```bash
 pip install .

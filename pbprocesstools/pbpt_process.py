@@ -25,7 +25,7 @@ pb_process_tools - Base utilities for batch processing data.
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 25/03/2020
-# Version: 4.0.1
+# Version: 4.0.2
 
 import importlib
 import os

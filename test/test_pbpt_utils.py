@@ -20,7 +20,7 @@ class PBPTUtilsTest(unittest.TestCase):
     def test_package_init_logging_and_configure(self):
         import pbprocesstools
 
-        self.assertEqual(pbprocesstools.__version__, "4.0.1")
+        self.assertEqual(pbprocesstools.__version__, "4.0.2")
         self.assertIsInstance(pbprocesstools.py_sys_version_flt, float)
 
         orig_lvl = os.environ.get("PBPT_LOG_LVL")

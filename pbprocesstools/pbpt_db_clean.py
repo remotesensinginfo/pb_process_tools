@@ -25,7 +25,7 @@ up leftover PostgreSQL job queue tables created by pb_process_tools.
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 20/11/2026
-# Version: 4.0.1
+# Version: 4.0.2
 
 import argparse
 import datetime

@@ -29,7 +29,7 @@ existing ``pbprocesstools.pbpt_utils`` class interfaces.
 # Author: Pete Bunting
 # Email: pfb@aber.ac.uk
 # Date: 12/11/2018
-# Version: 4.0.1
+# Version: 4.0.2
 
 import logging
 import os
