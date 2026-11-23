@@ -1,8 +1,15 @@
 # PB Process Tools
 
-![example workflow](https://github.com/remotesensinginfo/pb_process_tools/actions/workflows/main.yml/badge.svg)
+[![Tests](https://github.com/remotesensinginfo/pb_process_tools/actions/workflows/main.yml/badge.svg)](https://github.com/remotesensinginfo/pb_process_tools/actions/workflows/main.yml)
+[![Documentation Status](https://readthedocs.org/projects/pb-process-tools/badge/?version=latest)](https://pb-process-tools.readthedocs.io/en/latest/?badge=latest)
 
 Tools for batch processing workflows as a set of jobs backed by a PostgreSQL job queue. Workflows can execute either on an HPC cluster using Slurm (including job arrays) or on a local workstation using GNU Parallel.
+
+## Documentation
+
+Full documentation, installation guides, CLI references, and examples (including the Gemini code-generation skill) are available online at:
+
+- **Online Documentation**: https://pb-process-tools.readthedocs.io
 
 ## Installation
 

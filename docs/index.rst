@@ -18,6 +18,7 @@ Information
    installation
    commandlinetools
    examples
+   gemini_skill
    about
 
 
