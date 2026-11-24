@@ -10,7 +10,7 @@ The skill folder (``skills/pb-process-tools/``) contains:
 
 * ``SKILL.md`` — Core code-generation rules, scaffolding commands, worker/generator templates, and the operational CLI lifecycle.
 * ``references/api-reference.md`` — Exact signatures and parameter tables for ``PBPTQProcessTool``, ``PBPTGenQProcessToolCmds``, ``PBPTProcessToolsBase``, ``PBPTUtils``, and ``PBPTDatabaseCleaner``.
-* ``examples/landsat_ndvi_workflow.md`` — End-to-end Landsat NDVI batch processing workflow using ``rsgispy`` and concurrent multi-task queue patterns.
+* ``examples/landsat_ndvi_workflow.md`` — End-to-end Landsat NDVI batch processing workflow (Slurm job array + ``rsgispy``), concurrent multi-task queue patterns, and local GNU Parallel + ``out_cmp_file`` sentinel usage.
 
 Adding the Skill to Your Gemini Account Online
 ----------------------------------------------

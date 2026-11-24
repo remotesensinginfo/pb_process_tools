@@ -301,7 +301,7 @@ def gen_pb_process_tools_template(
     quoted_gen_py = shlex.quote(gen_py_file)
     sh_scripts = [
         (f'#!/bin/bash\n{py_cmd} {quoted_gen_py} --gen "$@"', run_gen_sh_file),
-        (f'#!/bin/bash\n{py_cmd} {quoted_gen_py} --status "$@"', run_status_sh_file),
+        (f'#!/bin/bash\nwatch -n 5 {py_cmd} {quoted_gen_py} --status "$@"', run_status_sh_file),
         (f'#!/bin/bash\n{py_cmd} {quoted_gen_py} --errors "$@"', run_errors_sh_file),
         (
             f'#!/bin/bash\n{py_cmd} {quoted_gen_py} --report "$@" | more',
@@ -412,4 +412,3 @@ if __name__ == "__main__":
         use_array=args.array,
         max_concurrent=args.max_concurrent,
     )
-

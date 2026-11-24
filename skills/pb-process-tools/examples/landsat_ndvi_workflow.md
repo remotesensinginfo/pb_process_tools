@@ -1,6 +1,6 @@
 # `pb_process_tools` Examples
 
-## 1. Batch Landsat NDVI with `rsgispy` (Slurm Job Array or GNU Parallel)
+## 1. Batch Landsat NDVI with `rsgispy` (Slurm Job Array)
 
 ### Worker (`lndvi_perform_analysis.py`)
 
@@ -48,12 +48,20 @@ class ProcessCmd(PBPTQProcessTool):
         return ["input_img", "output_ndvi", "red_band", "nir_band"]
 
     def outputs_present(self, **kwargs):
-        return self.check_files({self.params["output_ndvi"]: "gdal_image"})
+        return self.check_files(
+            {
+                self.params["output_ndvi"]: {
+                    "type": "gdal_image",
+                    "n_bands": 1,
+                }
+            }
+        )
 
     def remove_outputs(self, **kwargs):
         output_ndvi = self.params["output_ndvi"]
-        if os.path.exists(output_ndvi):
-            os.remove(output_ndvi)
+        for candidate in (output_ndvi, f"{output_ndvi}.aux.xml", f"{output_ndvi}.ovr"):
+            if os.path.exists(candidate):
+                os.remove(candidate)
 
 
 if __name__ == "__main__":
@@ -175,4 +183,94 @@ Or override table/schema from the CLI on any `GenCmds` script:
 ```bash
 python lndvi_gen_cmds.py --gen --table landsat_ndvi_roi2 --schema eo_workflows
 python lndvi_gen_cmds.py --status --table landsat_ndvi_roi2 --schema eo_workflows
+```
+
+---
+
+## 3. Local GNU Parallel Workflow with `out_cmp_file` Sentinel & `kwargs`
+
+Use `out_cmp_file` in `self.params` when a job writes multiple outputs into a directory; `PBPTQProcessTool.completed_processing()` automatically touches `out_cmp_file` upon success. Extra `**kwargs` passed to `std_run(...)` are forwarded into `do_processing`, `required_fields`, and debug `remove_outputs`.
+
+### Worker (`tile_process.py`)
+
+```python
+import os
+from pbprocesstools.pbpt_q_process import PBPTQProcessTool
+
+
+class TileWorker(PBPTQProcessTool):
+    def __init__(self):
+        super().__init__(cmd_name="tile_process.py", descript="Process tile folder.")
+
+    def do_processing(self, **kwargs):
+        out_dir = self.params["out_dir"]
+        os.makedirs(out_dir, exist_ok=True)
+        # Use kwargs passed from std_run(scale_factor=...)
+        scale = kwargs.get("scale_factor", 1.0)
+        with open(os.path.join(out_dir, "result.txt"), "w", encoding="utf-8") as fp:
+            fp.write(f"tile={self.params['tile_id']} scale={scale}\n")
+
+    def required_fields(self, **kwargs):
+        return ["tile_id", "out_dir", "out_cmp_file"]
+
+    def outputs_present(self, **kwargs):
+        return self.check_files(
+            {
+                self.params["out_cmp_file"]: "file",
+                os.path.join(self.params["out_dir"], "result.txt"): "filesize",
+            }
+        )
+
+    def remove_outputs(self, **kwargs):
+        self.remove_dir(self.params["out_dir"])
+        if os.path.exists(self.params["out_cmp_file"]):
+            os.remove(self.params["out_cmp_file"])
+
+
+if __name__ == "__main__":
+    TileWorker().std_run(scale_factor=0.0001)
+```
+
+### Generator (`tile_gen_cmds.py`, using `PBPT_DB_CONN_STR`)
+
+```python
+import os
+from pbprocesstools.pbpt_q_process import PBPTGenQProcessToolCmds
+
+
+class TileGenCmds(PBPTGenQProcessToolCmds):
+    def gen_command_info(self, **kwargs):
+        base_out = os.path.abspath(kwargs["base_out"])
+        os.makedirs(base_out, exist_ok=True)
+        for tile_id in kwargs["tile_ids"]:
+            cmp_file = os.path.join(base_out, f"{tile_id}.done")
+            if not os.path.exists(cmp_file):
+                self.params.append(
+                    {
+                        "tile_id": tile_id,
+                        "out_dir": os.path.join(base_out, tile_id),
+                        "out_cmp_file": cmp_file,
+                    }
+                )
+
+    def run_gen_commands(self):
+        self.gen_command_info(base_out="./tile_outputs", tile_ids=["T30UVB", "T30UVC"])
+        self.pop_params_db()
+        self.create_shell_exe(
+            run_script="run_tiles.sh",
+            cmds_sh_file="tile_cmds.sh",
+            n_cores=4,
+            db_info_file="tiles_db_info.json",
+        )
+
+
+if __name__ == "__main__":
+    # Reads PBPT_DB_CONN_STR from environment when db_conn_file / db_conn_str are omitted
+    py_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tile_process.py")
+    TileGenCmds(
+        cmd=f"python {py_script}",
+        process_tools_mod="tile_process",
+        process_tools_cls="TileWorker",
+        db_table_name="tile_jobs_demo",
+    ).parse_cmds()
 ```
